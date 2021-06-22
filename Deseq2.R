@@ -1,39 +1,39 @@
 # Inputs ------------------------------------------------------------------
-WD <- "/home/frank/R_projects/alpha_synuclein_June21/"
-condition1 <- "vehicle"
-condition2 <- "1ug/ml_ASPFF"
+WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
+condition1 <- "1ug_ml_ASPFF"
+condition2 <- "10ug_ml_ASPFF"
 
 # Load Libraries ----------------------------------------------------------
 library(BiocParallel)
 library(tximport)
 library(readr)
 library(DESeq2)
+library(data.table)
 library(ggplot2)
 library(gplots)
-library(RColorBrewer)
+library(genefilter)
 library(pheatmap)
 library(ggrepel)
 register(MulticoreParam(10))
 
 # TxImport ----------------------------------------------------------------
 setwd(WD)
-comparison <- paste(condition1, "_vs_", condition2, sep = "")
 samples <-
-  read.table(file.path(WD, "samples.txt"), header = TRUE)
-# samples <-
-#   samples[which(samples$condition == condition1 |
-#                   samples$condition == condition2),]
-files <- file.path(WD, "quants", samples$sample.ID, "quant.sf")
-names(files) <- samples$name
+    read.table(file.path(WD, "samples.txt"), header = TRUE)
+samples$mapped_percent <-
+    read.table(file.path(WD, "salmon_output", "mapped_percent.txt"))[, 2]
+files <- file.path(WD, "salmon_output", "quants", samples$sample.id, "quant.sf")
+names(files) <- samples$sample.id
 all(file.exists(files))
 tx2gene <- read.csv(file.path(WD, "tx2gene.csv"))
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
 
 # DESeq2 ------------------------------------------------------------------
-sampleTable <- data.frame(condition = samples$condition)
-rownames(sampleTable) <- colnames(txi$counts)
-dds <- DESeqDataSetFromTximport(txi, sampleTable, ~ condition)
+rownames(samples) <- colnames(txi$counts)
+dds <- DESeqDataSetFromTximport(txi, samples, ~ condition)
 dds <- DESeq(dds, parallel = TRUE)
+
+comparison <- paste(condition1, "_vs_", condition2, sep = "")
 res <-
   results(dds,
           contrast = c("condition", condition1, condition2),
@@ -41,15 +41,43 @@ res <-
 gene_synonym <- unique(tx2gene[,-1])
 z <- data.frame(res)
 z$gene_symbol <-
-  gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
+    gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
 z$chr <-
-  gene_synonym$chr[match(rownames(res), gene_synonym$gene_id)]
+    gene_synonym$chr[match(rownames(res), gene_synonym$gene_id)]
 z$start <-
-  gene_synonym$start[match(rownames(res), gene_synonym$gene_id)]
+    gene_synonym$start[match(rownames(res), gene_synonym$gene_id)]
 z$end <-
-  gene_synonym$end[match(rownames(res), gene_synonym$gene_id)]
+    gene_synonym$end[match(rownames(res), gene_synonym$gene_id)]
 z$description <-
-  gene_synonym$description[match(rownames(res), gene_synonym$gene_id)]
+    gene_synonym$description[match(rownames(res), gene_synonym$gene_id)]
+z <- merge(z,txi$abundance, by=0)
+setnames(z, "Row.names", "gene_id")
+z <-
+    z[, !(names(z) %in% row.names(subset(samples, condition != condition1 & condition != condition2)))]
+dir.create(file.path(WD, comparison))
+write.csv(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep="")))
+
+# PCA Plot ------------------------------------------------------------
+vsd <- vst(dds, blind=FALSE)
+pcaData <- plotPCA(vsd, intgroup=c("condition", "RIN", "DV200"), returnData=TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+pdf(file = "pca.pdf")
+ggplot(pcaData, aes(PC1, PC2, color=condition, shape=condition)) +
+  geom_point(size=2) + geom_text_repel(aes(label=name), show.legend=FALSE) +
+  xlab(paste0("PC1: ",percentVar[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar[2],"% variance")) +
+  coord_fixed() + labs(title = "Variance Stabilizing Transformation PCA Plot")
+dev.off()
+
+# Clustered heatmap
+topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
+mat  <- assay(vsd)[ topVarGenes, ]
+mat  <- mat - rowMeans(mat)
+rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
+pdf(file = "clustered_heatmap.pdf")
+anno <- as.data.frame(colData(vsd))
+pheatmap (mat, annotation_col=anno, main = "Top 20 Most Variable Genes", color = plasma(255))
+dev.off()
 
 # Expression Profile Plot -------------------------------------------------
 p <- ggplot(z,
@@ -86,44 +114,19 @@ p <-
 p + geom_point(size = 1) + scale_y_log10()
 
 # Clustered Sample Distance Plot ------------------------------------------
-rld <- rlog(dds, blind = FALSE)
-sampleDists <- dist(t(assay(rld)))
+sampleDists <- dist(t(assay(vsd)))
 sampleDistMatrix <- as.matrix(sampleDists)
-rownames(sampleDistMatrix) <- paste0(samples$sample, rld$type)
+rownames(sampleDistMatrix) <- paste(colnames(vsd), vsd$condition, sep=":")
 colnames(sampleDistMatrix) <- NULL
-colors <- colorRampPalette(rev(brewer.pal(9, "GnBu")))(255)
+colors <- plasma(255)
+pdf(file = "clustered_distance.pdf")
 pheatmap(
   sampleDistMatrix,
   clustering_distance_rows = sampleDists,
   clustering_distance_cols = sampleDists,
   col = colors
 )
-
-# Sample Count Outlier Detection ------------------------------------------
-samplecol = character(length = length(samples$condition))
-for (i in which(samples$condition == condition1)) {
-  samplecol[i] = "forestgreen"
-}
-for (i in which(samples$condition == condition2)) {
-  samplecol[i] = "red"
-}
-par(mar = c(8, 5, 2, 2))
-boxplot(log10(assays(dds)[["cooks"]]),
-        ylab = "Cook's Distance",
-        col = samplecol,
-        range = 0,
-        las = 2)
-
-# PCA Plot ------------------------------------------------------------
-pca_plot_data <-
-  plotPCA(rld, intgroup = c("condition"), returnData = TRUE)
-percentVar <- round(100 * attr(pca_plot_data, "percentVar"))
-ggplot(pca_plot_data, aes(PC1, PC2, color = condition)) +
-  geom_point(size = 2) + geom_text_repel(aes(label = name)) +
-  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
-  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
-  coord_fixed() +
-  scale_color_manual(values = c("green", "red", "purple"))
+dev.off()
 
 # Clustered Top 50 Heatmap ------------------------------------------------
 top.count <- 50
@@ -133,8 +136,6 @@ abund <- abund[which(rownames(abund) %in% top.genes), ]
 abund.scale <- t(scale(t(abund), center = TRUE, scale = TRUE))
 range(abund.scale)
 heatmap.labels <- z$gene_symbol[which(rownames(z) %in% top.genes)]
-no.symbol.ind <- which(is.na(heatmap.labels))
-heatmap.labels[no.symbol.ind] <- z$gene_biotype[which(rownames(z) %in% top.genes)][no.symbol.ind]
 pdf(file = paste(comparison, ".heatmap.pdf", sep = ""))
 heatmap.2(
   abund.scale,
@@ -142,7 +143,7 @@ heatmap.2(
   Colv = TRUE,
   margins = c(7, 10),
   breaks = seq(-2, 2, by = 4 / 11),
-  col = brewer.pal(11, "BrBG"),
+  col = plasma(50),
   labRow = heatmap.labels,
   cexRow = 0.8,
   cexCol = 1,

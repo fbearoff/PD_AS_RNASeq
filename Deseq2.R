@@ -1,7 +1,7 @@
 # Inputs ------------------------------------------------------------------
 WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
-condition1 <- "1ug_ml_ASPFF"
-condition2 <- "10ug_ml_ASPFF"
+condition1 <- "10ug_ml_ASPFF"
+condition2 <- "vehicle"
 
 # Load Libraries ----------------------------------------------------------
 library(BiocParallel)
@@ -14,6 +14,7 @@ library(gplots)
 library(genefilter)
 library(pheatmap)
 library(ggrepel)
+library(viridis)
 register(MulticoreParam(10))
 
 # TxImport ----------------------------------------------------------------
@@ -33,30 +34,6 @@ rownames(samples) <- colnames(txi$counts)
 dds <- DESeqDataSetFromTximport(txi, samples, ~ condition)
 dds <- DESeq(dds, parallel = TRUE)
 
-comparison <- paste(condition1, "_vs_", condition2, sep = "")
-res <-
-  results(dds,
-          contrast = c("condition", condition1, condition2),
-          parallel = TRUE)
-gene_synonym <- unique(tx2gene[,-1])
-z <- data.frame(res)
-z$gene_symbol <-
-    gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
-z$chr <-
-    gene_synonym$chr[match(rownames(res), gene_synonym$gene_id)]
-z$start <-
-    gene_synonym$start[match(rownames(res), gene_synonym$gene_id)]
-z$end <-
-    gene_synonym$end[match(rownames(res), gene_synonym$gene_id)]
-z$description <-
-    gene_synonym$description[match(rownames(res), gene_synonym$gene_id)]
-z <- merge(z,txi$abundance, by=0)
-setnames(z, "Row.names", "gene_id")
-z <-
-    z[, !(names(z) %in% row.names(subset(samples, condition != condition1 & condition != condition2)))]
-dir.create(file.path(WD, comparison))
-write.csv(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep="")))
-
 # PCA Plot ------------------------------------------------------------
 vsd <- vst(dds, blind=FALSE)
 pcaData <- plotPCA(vsd, intgroup=c("condition", "RIN", "DV200"), returnData=TRUE)
@@ -68,50 +45,6 @@ ggplot(pcaData, aes(PC1, PC2, color=condition, shape=condition)) +
   ylab(paste0("PC2: ",percentVar[2],"% variance")) +
   coord_fixed() + labs(title = "Variance Stabilizing Transformation PCA Plot")
 dev.off()
-
-# Clustered heatmap
-topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
-mat  <- assay(vsd)[ topVarGenes, ]
-mat  <- mat - rowMeans(mat)
-rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
-pdf(file = "clustered_heatmap.pdf")
-anno <- as.data.frame(colData(vsd))
-pheatmap (mat, annotation_col=anno, main = "Top 20 Most Variable Genes", color = plasma(255))
-dev.off()
-
-# Expression Profile Plot -------------------------------------------------
-p <- ggplot(z,
-            aes(
-              x = baseMean + 0.01,
-              y = log2FoldChange,
-              col = paste(padj < 0.05, is.na(padj)),
-              shape = paste(padj < 0.05, is.na(padj))
-            ))
-p + geom_point() +
-  scale_x_log10() +
-  scale_y_continuous(limits = c(-2, 2)) +
-  scale_color_manual(
-    labels = c("p>0.05", "Below threshold", "p<0.05"),
-    values = c("lightblue", "salmon", "green"),
-    guide_legend(title = "")
-  ) +
-  scale_shape_manual(guide = "none", values = c(0, 1, 2)) +
-  labs(title = paste(
-    paste(condition1, "vs.", condition2, "\n"),
-    "Expression Profile",
-    sep = ""
-  ),
-  x = "Expression") +
-  guides(colour = guide_legend(override.aes = list(shape = c(0, 1, 2))))
-
-# Volcano Plot ------------------------------------------------------------
-p <-
-  ggplot(z, aes(
-    x = log2FoldChange,
-    y = 1 - padj,
-    col = abs(log2FoldChange)
-  ))
-p + geom_point(size = 1) + scale_y_log10()
 
 # Clustered Sample Distance Plot ------------------------------------------
 sampleDists <- dist(t(assay(vsd)))
@@ -128,25 +61,95 @@ pheatmap(
 )
 dev.off()
 
+# Clustered Heatmap ---------------------------------------------------------
+topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
+mat  <- assay(vsd)[ topVarGenes, ]
+mat  <- mat - rowMeans(mat)
+rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
+pdf(file = "clustered_heatmap.pdf")
+anno <- as.data.frame(colData(vsd))
+pheatmap (mat, annotation_col=anno, main = "Top 20 Most Variable Genes",
+          color = plasma(255))
+dev.off()
+
+# DESeq2 Comparisons -----------------------------------------------------------
+comparison <- paste(condition1, "_vs_", condition2, sep = "")
+res <-
+  results(dds,
+          contrast = c("condition", condition1, condition2),
+          parallel = TRUE, alpha = 0.05)
+gene_synonym <- unique(tx2gene[,-1])
+z <- data.frame(res)
+z$gene_symbol <-
+    gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
+z$chr <-
+    gene_synonym$chr[match(rownames(res), gene_synonym$gene_id)]
+z$start <-
+    gene_synonym$start[match(rownames(res), gene_synonym$gene_id)]
+z$end <-
+    gene_synonym$end[match(rownames(res), gene_synonym$gene_id)]
+z$description <-
+    gene_synonym$description[match(rownames(res), gene_synonym$gene_id)]
+z <- merge(z,txi$abundance, by=0)
+setnames(z, "Row.names", "gene_id")
+z <-
+    z[, !(names(z) %in% row.names(subset(samples,
+                                         condition != condition1
+                                         & condition != condition2)))]
+dir.create(file.path(WD, comparison))
+fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep="")))
+
+# Expression Profile Plot -------------------------------------------------
+pdf(file=file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf")))
+p <- ggplot(z,
+            aes(
+              x = baseMean + 0.01,
+              y = log2FoldChange,
+              col = paste(padj < 0.05, is.na(padj)),
+              shape = paste(padj < 0.05, is.na(padj))
+            ))
+p + geom_point() +
+  scale_x_log10() +
+  scale_y_continuous(breaks = seq(-3,3,1)) +
+  scale_color_manual(
+    labels = c("padj>0.05", "Below threshold", "padj<0.05"),
+    values = c("lightblue", "salmon", "green"),
+    guide_legend(title = "")) +
+  scale_shape_manual(guide = "none", values = c(0, 1, 2)) +
+  labs(title = paste(paste(condition1, "vs.", condition2), sep = ""),
+       subtitle = "MA Plot", x = "baseMean") +
+  guides(colour = guide_legend(override.aes = list(shape = c(0, 1, 2)))) +
+  annotate(geom = "text", y = 3, x = 5,
+           label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA"
+                               & log2FoldChange > 0]), " Genes Upregulated in ",
+                          condition1), hjust = "middle") +
+  annotate(geom = "text", y = -3, x = 5,
+           label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA"
+                               & log2FoldChange < 0]), " Genes Downregulated in ",
+                          condition1), hjust = "middle")
+dev.off()
+
+# Volcano Plot ------------------------------------------------------------
+pdf(file=file.path(WD, comparison, paste0(comparison, ".volcano_plot.pdf")))
+p <-
+  ggplot(z, aes(
+    x = log2FoldChange,
+    y = 1 - padj,
+    col = abs(log2FoldChange)))
+p + geom_point(size = 1) + scale_y_log10()
+dev.off()
+
 # Clustered Top 50 Heatmap ------------------------------------------------
 top.count <- 50
-top.genes <- rownames(z)[order(z$padj)][1:top.count]
+top.genes <- z$gene_id[order(z$padj)][1:top.count]
 abund <- txi$abundance
 abund <- abund[which(rownames(abund) %in% top.genes), ]
 abund.scale <- t(scale(t(abund), center = TRUE, scale = TRUE))
-range(abund.scale)
-heatmap.labels <- z$gene_symbol[which(rownames(z) %in% top.genes)]
-pdf(file = paste(comparison, ".heatmap.pdf", sep = ""))
-heatmap.2(
-  abund.scale,
-  trace = "none",
-  Colv = TRUE,
-  margins = c(7, 10),
-  breaks = seq(-2, 2, by = 4 / 11),
-  col = plasma(50),
-  labRow = heatmap.labels,
-  cexRow = 0.8,
-  cexCol = 1,
-  ColSideColors = samplecol
-)
+rownames(abund.scale) <- tx2gene$gene_symbol[match(rownames(abund.scale),
+                                                   tx2gene$gene_id)]
+pdf(file = file.path(WD, comparison, paste0(comparison, ".heatmap.pdf")))
+pheatmap(mat = abund.scale, main = paste0(comparison, "\n Top ", top.count,
+                                          " Significant Genes"),
+         annotation_col = anno, angle_col = 45, fontsize_row =6,
+         annotation_names_col = FALSE, color = plasma(255))
 dev.off()

@@ -1,7 +1,7 @@
 # Inputs ------------------------------------------------------------------
 WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
 condition1 <- "10ug_ml_ASPFF"
-condition2 <- "vehicle"
+condition2 <- "1ug_ml_ASPFF"
 
 # Load Libraries ----------------------------------------------------------
 library(BiocParallel)
@@ -153,3 +153,30 @@ pheatmap(mat = abund.scale, main = paste0(comparison, "\n Top ", top.count,
          annotation_col = anno, angle_col = 45, fontsize_row =6,
          annotation_names_col = FALSE, color = plasma(255))
 dev.off()
+
+# GO Enrichment -----------------------------------------------------------
+library(gprofiler2)
+library(stringr)
+
+sig <-
+    as.data.table(z)[padj <= 0.05
+                        & abs(log2FoldChange) > 1
+                        & order(padj) ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
+sig_genes <-
+    setNames(list(str_extract(sig$gene_id, "^.*(?=(\\.))")), comparison)
+gost_res <-
+    gost(query = sig_genes, organism = "hsapiens", ordered_query = TRUE, exclude_iea = TRUE)
+gost_link <-
+    gost(query = sig_genes, organism = "hsapiens", ordered_query = TRUE, exclude_iea = TRUE, as_short_link = TRUE)
+gp <-
+    gostplot(gost_res, capped = FALSE, interactive = TRUE )
+htmlwidgets::saveWidget(gp,
+                        selfcontained = TRUE,
+                        title = comparison,
+                        file = file.path(WD, comparison,
+                                         paste0(comparison, ".gProfiler_plot.html")))
+fwrite(gost_res$result, file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv")))
+cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
+           gost_link, "\" />", "\n</head>\n<body>\n</body>\n</html>"),
+    file=file.path(WD, comparison, paste0(comparison, ".gProfiler.html")))
+browseURL(gost_link)

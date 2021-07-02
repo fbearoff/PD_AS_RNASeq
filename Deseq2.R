@@ -1,7 +1,7 @@
 # Inputs ------------------------------------------------------------------
 WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
-condition1 <- "10ug_ml_ASPFF"
-condition2 <- "10ug_ml_ASM"
+condition1 <- "10ug_ml_ASM"
+condition2 <- "vehicle"
 
 # Load Libraries ----------------------------------------------------------
 library(BiocParallel)
@@ -160,15 +160,15 @@ library(stringr)
 library(htmlwidgets)
 
 sig_up <-
-    as.data.table(z)[padj <= 0.05
-                        & log2FoldChange > 1
-                        & order(padj) ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
+    as.data.table(z)[order(padj)][log2FoldChange > 1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
 sig_down <-
-    as.data.table(z)[padj <= 0.05
-                     & log2FoldChange < -1
-                     & order(padj) ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
-sig_genes <- setNames(list(fifelse(as.character(sig_up$gene_symbol) != "", as.character(sig_up$gene_symbol), as.character(str_extract(sig_up$gene_id, "^.*(?=(\\.))"))),
-                           fifelse(as.character(sig_down$gene_symbol) != "", as.character(sig_down$gene_symbol), as.character(str_extract(sig_down$gene_id, "^.*(?=(\\.))")))),
+    as.data.table(z)[order(padj)][log2FoldChange < -1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
+sig_genes <- setNames(list(fifelse(as.character(sig_up$gene_symbol) != "",
+                                   as.character(sig_up$gene_symbol),
+                                   as.character(str_extract(sig_up$gene_id, "^.*(?=(\\.))"))),
+                           fifelse(as.character(sig_down$gene_symbol) != "",
+                                   as.character(sig_down$gene_symbol),
+                                   as.character(str_extract(sig_down$gene_id, "^.*(?=(\\.))")))),
                       c(paste0(comparison, "_up"), paste0(comparison, "_down")))
 gost_res <-
     gost(query = sig_genes,
@@ -184,13 +184,16 @@ gost_link <-
          exclude_iea = TRUE,
          as_short_link = TRUE)
 gp <-
-    gostplot(gost_res, capped = FALSE, interactive = TRUE )
+    gostplot(gost_res,
+             capped = FALSE,
+             interactive = TRUE)
 htmlwidgets::saveWidget(gp,
                         selfcontained = FALSE,
                         title = comparison,
                         file = file.path(WD, comparison,
                                          paste0(comparison, ".gProfiler_plot.html")))
-fwrite(as.data.table(gost_res$result)[order(p_value)], file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv")))
+fwrite(as.data.table(gost_res$result)[order(p_value)],
+       file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv")))
 cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
            gost_link, "\" />", "\n</head>\n<body>\n</body>\n</html>"),
     file=file.path(WD, comparison, paste0(comparison, ".gProfiler.html")))

@@ -66,9 +66,9 @@ topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
 mat  <- assay(vsd)[ topVarGenes, ]
 mat  <- mat - rowMeans(mat)
 rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
+anno <- as.data.frame(colData(vsd)[, c("condition", "RIN", "DV200")])
 pdf(file = "clustered_heatmap.pdf")
-anno <- as.data.frame(colData(vsd))
-pheatmap (mat, annotation_col=anno, main = "Top 20 Most Variable Genes",
+pheatmap(mat, annotation_col=anno, angle_col = 45,  main = "Top 20 Most Variable Genes",
           color = plasma(255))
 dev.off()
 
@@ -211,3 +211,16 @@ htmlRep <- HTMLReport(shortName = paste0(comparison, "_report"),
 publish(dds, htmlRep, pvalueCutoff = 0.05, annotation.db = "EnsDb.Hsapiens.v86", factor = colData(dds)$condition)
 url <- finish(htmlRep)
 browseURL(url)
+
+# Plot Gene -----------------------------------------------------------
+plot_gene <- function(gene_name) {
+    gene_id  <- as.data.table(tx2gene)[gene_symbol==gene_name, gene_id[1]]
+    plot_data <- plotCounts(dds, gene=as.character(gene_id), returnData=TRUE)
+    ggplot(plot_data, aes(x = condition, y = count, color=condition)) +
+           geom_point(show.legend=TRUE) +
+           scale_color_manual(values=plasma(5)) +
+           ggtitle(gene_name) +
+           theme(plot.title=element_text(hjust=.5))
+}
+
+plot_gene("IL1B")

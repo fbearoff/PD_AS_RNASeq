@@ -199,6 +199,27 @@ cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
     file=file.path(WD, comparison, paste0(comparison, ".gProfiler.html")))
 browseURL(gost_link)
 
+query_gost_genes  <- function(direction, data_source) {
+    query_list <- setNames(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_", direction) & source==data_source, intersection], ","),
+                           as.data.table(gost_res$result)[query==paste0(comparison, "_", direction) & source==data_source, term_name])
+    print(query_list)
+}
+
+pathways <- as.data.table(gost_res$result)[source %in% c("REAC", "WP", "KEGG") & query==paste0(comparison, "_up"), c("term_name", "p_value", "intersection_size", "source")]
+
+pdf(file="pathways.pdf")
+ggplot(pathways, aes(x=abs(log(p_value)), y=reorder(term_name, -p_value), fill=source)) +
+    geom_col() +
+    geom_text(aes(label = term_name), position = position_stack(vjust=1), size=2) +
+    scale_fill_manual(values=c("red", "purple", "orange")) +
+    scale_x_continuous(name="-log(p-value)") +
+    scale_y_discrete(name="Pathway") +
+    theme_classic() +
+    theme(axis.text.y=element_blank())
+#working here
+dev.off()
+
+
 
 # Reporting Tool
 library("ReportingTools")
@@ -214,13 +235,23 @@ browseURL(url)
 
 # Plot Gene -----------------------------------------------------------
 plot_gene <- function(gene_name) {
-    gene_id  <- as.data.table(tx2gene)[gene_symbol==gene_name, gene_id[1]]
+    gene_name  <- toupper(gene_name)
+    gene_id  <- as.data.table(tx2gene)[gene_symbol==gene_name & chr %in% c(1:22, "X", "Y", "MT"), gene_id][1]
     plot_data <- plotCounts(dds, gene=as.character(gene_id), returnData=TRUE)
     ggplot(plot_data, aes(x = condition, y = count, color=condition)) +
            geom_point(show.legend=TRUE) +
            scale_color_manual(values=plasma(5)) +
-           ggtitle(gene_name) +
+           ggtitle(paste0(gene_name,"\n", gene_id)) +
            theme(plot.title=element_text(hjust=.5))
 }
 
-plot_gene("IL1B")
+plot_gene("TNF")
+
+
+for (gene in rownames(mat)){
+    pdf(file = paste0(WD, "/expression_plots/", gene, ".pdf"))
+    final_plot <- plot_gene(gene)
+    print(final_plot)
+    dev.off()
+}
+

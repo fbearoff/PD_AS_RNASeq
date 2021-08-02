@@ -158,6 +158,8 @@ dev.off()
 library(gprofiler2)
 library(stringr)
 library(htmlwidgets)
+library(plyr)
+library(ggtext)
 
 sig_up <-
     as.data.table(z)[order(padj)][log2FoldChange > 1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
@@ -205,17 +207,24 @@ query_gost_genes  <- function(direction, data_source) {
     print(query_list)
 }
 
-pathways <- as.data.table(gost_res$result)[source %in% c("REAC", "WP", "KEGG") & query==paste0(comparison, "_up"), c("term_name", "p_value", "intersection_size", "source")]
+pathways <- as.data.table(gost_res$result)[source %in% c("REAC", "WP", "KEGG") & query==paste0(comparison, "_up"), c("term_name", "p_value", "intersection_size", "source")][order(p_value)]
 
-pdf(file="pathways.pdf")
-ggplot(pathways, aes(x=abs(log(p_value)), y=reorder(term_name, -p_value), fill=source)) +
+pdf(file="pathways.pdf", width=15, height=10)
+ggplot(pathways[1:40], aes(x=abs(log(p_value)), y=reorder(term_name, -p_value),label=term_name, fill=source)) +
     geom_col() +
-    geom_text(aes(label = term_name), position = position_stack(vjust=1), size=2) +
-    scale_fill_manual(values=c("red", "purple", "orange")) +
-    scale_x_continuous(name="-log(p-value)") +
-    scale_y_discrete(name="Pathway") +
+    geom_richtext(aes(label = paste0(term_name, " (**", intersection_size, "**)"),
+                  hjust="left"),
+              position = position_stack(vjust=0),
+              size=3.5,
+              fill = NA,
+              color=revalue(pathways$source[1:40], c("REAC"="black", "WP"="black", "KEGG"="white")),
+              label.color=NA) +
+    scale_fill_manual( values=plasma(3)) +
+    scale_x_continuous(name="-log(p-value)", expand=expansion(0)) +
+    scale_y_discrete(name="Pathway")  +
     theme_classic() +
-    theme(axis.text.y=element_blank())
+    theme(axis.text.y=element_blank(),
+          axis.ticks.y=element_blank())
 #working here
 dev.off()
 

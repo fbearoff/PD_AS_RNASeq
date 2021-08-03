@@ -220,11 +220,12 @@ ggplot(pathways[1:40], aes(x=abs(log(p_value)), y=reorder(term_name, -p_value),l
               color=revalue(pathways$source[1:40], c("REAC"="black", "WP"="black", "KEGG"="white")),
               label.color=NA) +
     scale_fill_manual( values=plasma(3)) +
-    scale_x_continuous(name="-log(p-value)", expand=expansion(0)) +
+    scale_x_continuous(name="-log<sub>10</sub> p-value", expand=expansion(0)) +
     scale_y_discrete(name="Pathway")  +
     theme_classic() +
     theme(axis.text.y=element_blank(),
-          axis.ticks.y=element_blank())
+          axis.title.x=element_markdown()
+          )
 #working here
 dev.off()
 

@@ -232,8 +232,6 @@ gem %>% group_by(query) %>%
 
 
 
-
-
 query_gost_genes  <- function(direction, data_source) {
     query_list <- setNames(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_", direction) & source==data_source, intersection], ","),
                            as.data.table(gost_res$result)[query==paste0(comparison, "_", direction) & source==data_source, term_name])
@@ -274,11 +272,41 @@ path_plot <- ggplot(pathways[plot_order<=pathway_n], aes(x=log_p_value, y=fct_re
     scale_fill_manual(values=plasma(4)) +
     scale_x_continuous(name="-log p-value", limits=c(-20, NA)) +
     scale_y_discrete(name="Pathway Rank")  +
-    annotate("text", x=c(-Inf,Inf), y=pathway_n/2, label = c(paste0(" <- Downregulated in ", condition1), paste0("Upregulated in ", condition1, "-> ")), hjust=c("left","right")) +
+    annotate("text",
+             x=c(-Inf,Inf),
+             y=pathway_n/2,
+             label = c(paste0(" <- Downregulated in ", condition1), paste0("Upregulated in ", condition1, "-> ")), hjust=c("left","right")) +
     theme_classic() +
     labs(title=paste0("Top ", pathway_n, " Enriched Pathways in ", comparison)) +
     theme(plot.margin=grid::unit(c(0.5,0.5,0,0.5), "in"))
 ggsave(path_plot, file="pathways.pdf")
+
+# Most common genes in results
+library("grid")
+library("ggplotify")
+
+pie_up <- as.grob(function()pie(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_up"), intersection],
+                               ","))),
+         decreasing=TRUE)[1:20],
+         col=plasma(20)))
+pie_down <-as.grob(function()pie(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_down"), intersection],
+                               ","))),
+         decreasing=TRUE),
+    col=plasma(20)))
+
+path_plot + 
+    annotation_custom(grob=pie_down,
+                      xmin=-25,
+                      xmax=-5,
+                      ymin=-5,
+                      ymax=15) +
+    annotation_custom(grob=pie_up,
+                      xmin=30,
+                      xmax=50,
+                      ymin=-5,
+                      ymax=15)
+
+
 
 # Plot Gene -----------------------------------------------------------
 plot_gene <- function(gene_name) {

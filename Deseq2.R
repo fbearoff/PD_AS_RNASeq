@@ -121,12 +121,16 @@ p + geom_point() +
   guides(colour = guide_legend(override.aes = list(shape = c(0, 1, 2)))) +
   annotate(geom = "text", y = 3, x = 5,
            label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA"
-                               & log2FoldChange > 0]), " Genes Upregulated in ",
-                          condition1), hjust = "middle") +
+                               & log2FoldChange > 0]),
+                          " Genes Upregulated in ",
+                          condition1),
+           hjust = "middle") +
   annotate(geom = "text", y = -3, x = 5,
            label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA"
-                               & log2FoldChange < 0]), " Genes Downregulated in ",
-                          condition1), hjust = "middle")
+                               & log2FoldChange < 0]),
+                          " Genes Downregulated in ",
+                          condition1),
+           hjust = "middle")
 dev.off()
 
 # Volcano Plot ------------------------------------------------------------
@@ -160,35 +164,38 @@ library(stringr)
 library(htmlwidgets)
 library(plyr)
 library(ggtext)
+library(forcats)
+library(dplyr)
 
-sig_up <-
-    as.data.table(z)[order(padj)][log2FoldChange > 1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
-sig_down <-
-    as.data.table(z)[order(padj)][log2FoldChange < -1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
-sig_genes <- setNames(list(fifelse(as.character(sig_up$gene_symbol) != "",
+
+#MSigDB Canonical pathways v7.4 unique string
+custom_gmt <- 'gp__IbKR_F2Rn_Tss'
+
+sig_up <- as.data.table(z)[order(padj)][log2FoldChange > 1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
+sig_down <- as.data.table(z)[order(padj)][log2FoldChange < -1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
+sig_genes <- setNames(list(
+                           fifelse(as.character(sig_up$gene_symbol) != "",
                                    as.character(sig_up$gene_symbol),
                                    as.character(str_extract(sig_up$gene_id, "^.*(?=(\\.))"))),
                            fifelse(as.character(sig_down$gene_symbol) != "",
                                    as.character(sig_down$gene_symbol),
                                    as.character(str_extract(sig_down$gene_id, "^.*(?=(\\.))")))),
-                      c(paste0(comparison, "_up"), paste0(comparison, "_down")))
-gost_res <-
-    gost(query = sig_genes,
-         organism = "hsapiens",
-         ordered_query = TRUE,
-         multi_query = FALSE,
-         evcodes = TRUE,
-         exclude_iea = TRUE)
-gost_link <-
-    gost(query = sig_genes,
-         organism = "hsapiens",
-         ordered_query = TRUE,
-         exclude_iea = TRUE,
-         as_short_link = TRUE)
-gp <-
-    gostplot(gost_res,
-             capped = FALSE,
-             interactive = TRUE)
+                      c(paste0(comparison, "_up"),
+                        paste0(comparison, "_down")))
+gost_res <- gost(query = sig_genes,
+                 organism = custom_gmt,
+                 ordered_query = TRUE,
+                 multi_query = FALSE,
+                 evcodes = TRUE,
+                 exclude_iea = TRUE)
+gost_link <- gost(query = sig_genes,
+                  organism = custom_gmt, #usually "hsapaiens"
+                  ordered_query = TRUE,
+                  exclude_iea = TRUE,
+                  as_short_link = TRUE)
+gp <- gostplot(gost_res,
+               capped = FALSE,
+               interactive = TRUE)
 htmlwidgets::saveWidget(gp,
                         selfcontained = FALSE,
                         title = comparison,
@@ -197,9 +204,35 @@ htmlwidgets::saveWidget(gp,
 fwrite(as.data.table(gost_res$result)[order(p_value)],
        file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv")))
 cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
-           gost_link, "\" />", "\n</head>\n<body>\n</body>\n</html>"),
-    file=file.path(WD, comparison, paste0(comparison, ".gProfiler.html")))
+           gost_link,
+           "\" />", "\n</head>\n<body>\n</body>\n</html>"),
+    file=file.path(WD,
+                   comparison,
+                   paste0(comparison, ".gProfiler.html")))
 browseURL(gost_link)
+
+gost_res$result$term_name <- str_replace_all(str_replace_all(gost_res$result$term_name,
+                                                                  'http://www.gsea-msigdb.org/gsea/msigdb/cards/(.*?)_',
+                                                                  ""),
+                                                  "_"," ")
+gost_res$result$source  <- str_extract(gost_res$result$term_id,
+                                            "^[^_]*")
+
+
+gem <- gost_res$result[,c("query", "term_id", "term_name", "p_value", "intersection", "source")]
+colnames(gem) <- c("query", "GO.ID", "Description", "p.Val", "Genes", "source")
+gem$FDR <- gem$p.Val
+gem$Phenotype = "+1"
+
+gem %>% group_by(query) %>%
+  group_walk(~
+    write.table(data.frame(.x[,c("GO.ID", "Description", "p.Val", "FDR", "Phenotype", "Genes", "source")]),
+                file = paste0(comparison, "/", unique(.y$query), "_gem.txt"),
+                sep = "\t", quote = F, row.names = F))
+
+
+
+
 
 query_gost_genes  <- function(direction, data_source) {
     query_list <- setNames(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_", direction) & source==data_source, intersection], ","),
@@ -207,41 +240,45 @@ query_gost_genes  <- function(direction, data_source) {
     print(query_list)
 }
 
-pathways <- as.data.table(gost_res$result)[source %in% c("REAC", "WP", "KEGG") & query==paste0(comparison, "_up"), c("term_name", "p_value", "intersection_size", "source")][order(p_value)]
+pathways <- as.data.table(gost_res$result)[, c("term_name", "p_value", "term_size","intersection_size", "source", "query")][order(query, p_value)]
 
-pdf(file="pathways.pdf", width=15, height=10)
-ggplot(pathways[1:40], aes(x=abs(log(p_value)), y=reorder(term_name, -p_value),label=term_name, fill=source)) +
-    geom_col() +
-    geom_richtext(aes(label = paste0(term_name, " (**", intersection_size, "**)"),
-                  hjust="left"),
-              position = position_stack(vjust=0),
-              size=3.5,
-              fill = NA,
-              color=revalue(pathways$source[1:40], c("REAC"="black", "WP"="black", "KEGG"="white")),
+plot_order <- rownames(pathways[query==paste0(comparison, "_down")])
+plot_order <- append(plot_order, rownames(pathways[query==paste0(comparison, "_up")]))
+pathways$plot_order <- as.numeric(plot_order)
+pathways[, `:=`(log_p_value=log(p_value))]
+pathways[query==paste0(comparison, "_up"), `:=`(log_p_value=-1*log_p_value)]
+
+pathway_n <- 30
+
+path_plot <- ggplot(pathways[plot_order<=pathway_n], aes(x=log_p_value, y=fct_rev(as.factor(plot_order)), fill=source)) +
+    geom_col(position=position_stack()) +
+    geom_richtext(data=pathways[plot_order <= pathway_n & log_p_value>1],
+                  aes(label = paste0(term_name, " (**", intersection_size, "/", term_size, "**)"),
+                      hjust="left",
+                      vjust=0.5),
+                  position = position_stack(vjust=0),
+                  size=3,
+                  fill = NA,
+                  color=revalue(pathways[plot_order <= pathway_n & log_p_value > 1]$source,
+                                c("REACTOME"="black", "WP"="black", "KEGG"="white", "PID"="black", "NABA"="white", "BIOCARTA"="black", "SIG"="black")),
               label.color=NA) +
-    scale_fill_manual( values=plasma(3)) +
-    scale_x_continuous(name="-log<sub>10</sub> p-value", expand=expansion(0)) +
-    scale_y_discrete(name="Pathway")  +
+    geom_richtext(data=pathways[plot_order <= pathway_n & log_p_value<1],
+                  aes(label = paste0(term_name, " (**", intersection_size, "/", term_size, "**)"),
+                      hjust="right",
+                      vjust=0.5),
+                  position = position_dodge(width=1),
+                  size=3,
+                  fill = NA,
+                  color="black",
+                  label.color=NA) +
+    scale_fill_manual(values=plasma(4)) +
+    scale_x_continuous(name="-log p-value", limits=c(-20, NA)) +
+    scale_y_discrete(name="Pathway Rank")  +
+    annotate("text", x=c(-Inf,Inf), y=pathway_n/2, label = c(paste0(" <- Downregulated in ", condition1), paste0("Upregulated in ", condition1, "-> ")), hjust=c("left","right")) +
     theme_classic() +
-    theme(axis.text.y=element_blank(),
-          axis.title.x=element_markdown()
-          )
-#working here
-dev.off()
-
-
-
-# Reporting Tool
-library("ReportingTools")
-library("ensembldb")
-library("EnsDb.Hsapiens.v86")
-htmlRep <- HTMLReport(shortName = paste0(comparison, "_report"),
-                      title = comparison,
-                      basePath = file.path(paste0(WD,"/", comparison)),
-                      reportDirectory = "report")
-publish(dds, htmlRep, pvalueCutoff = 0.05, annotation.db = "EnsDb.Hsapiens.v86", factor = colData(dds)$condition)
-url <- finish(htmlRep)
-browseURL(url)
+    labs(title=paste0("Top ", pathway_n, " Enriched Pathways in ", comparison)) +
+    theme(plot.margin=grid::unit(c(0.5,0.5,0,0.5), "in"))
+ggsave(path_plot, file="pathways.pdf")
 
 # Plot Gene -----------------------------------------------------------
 plot_gene <- function(gene_name) {
@@ -257,11 +294,9 @@ plot_gene <- function(gene_name) {
 
 plot_gene("TNF")
 
-
 for (gene in rownames(mat)){
     pdf(file = paste0(WD, "/expression_plots/", gene, ".pdf"))
     final_plot <- plot_gene(gene)
     print(final_plot)
     dev.off()
 }
-

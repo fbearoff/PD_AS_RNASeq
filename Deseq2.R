@@ -170,7 +170,6 @@ library(dplyr)
 
 #MSigDB Canonical pathways v7.4 unique string
 custom_gmt <- 'gp__IbKR_F2Rn_Tss'
-
 sig_up <- as.data.table(z)[order(padj)][log2FoldChange > 1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
 sig_down <- as.data.table(z)[order(padj)][log2FoldChange < -1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
 sig_genes <- setNames(list(
@@ -188,6 +187,7 @@ gost_res <- gost(query = sig_genes,
                  multi_query = FALSE,
                  evcodes = TRUE,
                  exclude_iea = TRUE)
+
 gost_link <- gost(query = sig_genes,
                   organism = custom_gmt, #usually "hsapaiens"
                   ordered_query = TRUE,
@@ -231,7 +231,7 @@ gem %>% group_by(query) %>%
                 sep = "\t", quote = F, row.names = F))
 
 
-
+#return pathway genes as list per pathway filtered by direction and data source
 query_gost_genes  <- function(direction, data_source) {
     query_list <- setNames(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_", direction) & source==data_source, intersection], ","),
                            as.data.table(gost_res$result)[query==paste0(comparison, "_", direction) & source==data_source, term_name])
@@ -239,7 +239,6 @@ query_gost_genes  <- function(direction, data_source) {
 }
 
 pathways <- as.data.table(gost_res$result)[, c("term_name", "p_value", "term_size","intersection_size", "source", "query")][order(query, p_value)]
-
 plot_order <- rownames(pathways[query==paste0(comparison, "_down")])
 plot_order <- append(plot_order, rownames(pathways[query==paste0(comparison, "_up")]))
 pathways$plot_order <- as.numeric(plot_order)
@@ -249,7 +248,8 @@ pathways[query==paste0(comparison, "_up"), `:=`(log_p_value=-1*log_p_value)]
 pathway_n <- 30
 
 path_plot <- ggplot(pathways[plot_order<=pathway_n], aes(x=log_p_value, y=fct_rev(as.factor(plot_order)), fill=source)) +
-    geom_col(position=position_stack()) +
+    geom_col(position=position_stack(),
+             color="white") +
     geom_richtext(data=pathways[plot_order <= pathway_n & log_p_value>1],
                   aes(label = paste0(term_name, " (**", intersection_size, "/", term_size, "**)"),
                       hjust="left",
@@ -270,43 +270,51 @@ path_plot <- ggplot(pathways[plot_order<=pathway_n], aes(x=log_p_value, y=fct_re
                   color="black",
                   label.color=NA) +
     scale_fill_manual(values=plasma(4)) +
-    scale_x_continuous(name="-log p-value", limits=c(-20, NA)) +
+    scale_x_continuous(name="-log p-value", limits=c(-25, NA)) +
     scale_y_discrete(name="Pathway Rank")  +
-    annotate("text",
-             x=c(-Inf,Inf),
-             y=pathway_n/2,
-             label = c(paste0(" <- Downregulated in ", condition1), paste0("Upregulated in ", condition1, "-> ")), hjust=c("left","right")) +
     theme_classic() +
     labs(title=paste0("Top ", pathway_n, " Enriched Pathways in ", comparison)) +
-    theme(plot.margin=grid::unit(c(0.5,0.5,0,0.5), "in"))
-ggsave(path_plot, file="pathways.pdf")
+    theme(plot.margin=grid::unit(c(0.5,0.5,0,0.5), "in"),
+          plot.title=element_text(hjust=0.5),
+          legend.justification="top")
 
 # Most common genes in results
-library("grid")
-library("ggplotify")
+library(grid)
+library(gridExtra)
+library(ggplotify)
 
-pie_up <- as.grob(function()pie(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_up"), intersection],
-                               ","))),
-         decreasing=TRUE)[1:20],
-         col=plasma(20)))
-pie_down <-as.grob(function()pie(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_down"), intersection],
-                               ","))),
-         decreasing=TRUE),
-    col=plasma(20)))
-
-path_plot + 
-    annotation_custom(grob=pie_down,
-                      xmin=-25,
-                      xmax=-5,
-                      ymin=-5,
-                      ymax=15) +
-    annotation_custom(grob=pie_up,
-                      xmin=30,
-                      xmax=50,
-                      ymin=-5,
-                      ymax=15)
-
-
+bar_up <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_up"), intersection],
+                                                   ","))),
+                             decreasing=TRUE)[1:10])
+bar_down <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query==paste0(comparison, "_down"), intersection],
+                                                   ","))),
+                             decreasing=TRUE)[1:10])
+bar_up_grob <- as.grob(ggplot(bar_up, aes(x=reorder(V1, -N), y=N, fill=N)) +
+                       theme_minimal() +
+                       geom_col(show.legend=FALSE) +
+                       scale_fill_viridis(option="plasma",
+                                          direction=-1) +
+                       labs(title=paste0("Most Frequently Occuring Pathway Genes<br> *Upregulated*  in ", condition1),
+                            y="Pathway Occurrences") +
+                       theme(aspect.ratio=3/5,
+                             axis.title.x=element_blank(),
+                             axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+                             panel.grid=element_blank(),
+                             plot.title=element_markdown(hjust=0.5, size=10)))
+bar_down_grob <- as.grob(ggplot(bar_down, aes(x=reorder(V1, -N), y=N, fill=N)) +
+                       theme_minimal() +
+                       geom_col(show.legend=FALSE) +
+                       scale_fill_viridis(option="plasma",
+                                          direction=-1) +
+                       labs(title=paste0("Most Frequently Occuring Pathway Genes<br>*Downregulated*  in ", condition1),
+                            y="Pathway Occurrences") +
+                       theme(aspect.ratio=3/5,
+                             axis.title.x=element_blank(),
+                             axis.text.x=element_text(angle=45, hjust=1, vjust=1),
+                             panel.grid=element_blank(),
+                             plot.title=element_markdown(hjust=0.5, size=10)))
+path_plot + annotation_custom(as.grob(grid.arrange(blankPlot, arrangeGrob(bar_down_grob, blankPlot, blankPlot, blankPlot, bar_up_grob, ncol=5), ncol=1)), xmin=-25,xmax=Inf, ymin=0)
+ggsave(last_plot(), file="pathways.pdf")
 
 # Plot Gene -----------------------------------------------------------
 plot_gene <- function(gene_name) {
@@ -328,3 +336,6 @@ for (gene in rownames(mat)){
     print(final_plot)
     dev.off()
 }
+
+blankPlot <- ggplot()+geom_blank(aes(1,1))+
+  theme_void()

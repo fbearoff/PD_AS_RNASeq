@@ -1,7 +1,7 @@
 # Inputs ------------------------------------------------------------------
 WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
-condition1 <- "10ug_ml_ASM"
-condition2 <- "vehicle"
+condition1 <- "10ug_ml_ASPFF"
+condition2 <- "10ug_ml_ASM"
 
 # Load Libraries ----------------------------------------------------------
 library(BiocParallel)
@@ -15,6 +15,7 @@ library(genefilter)
 library(pheatmap)
 library(ggrepel)
 library(viridis)
+library(dplyr)
 register(MulticoreParam(10))
 
 # TxImport ----------------------------------------------------------------
@@ -100,38 +101,50 @@ dir.create(file.path(WD, comparison))
 fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep="")))
 
 # Expression Profile Plot -------------------------------------------------
-pdf(file=file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf")))
+#highligts the top 5 by FC transcripts in each direction
+top_10  <- as.data.table(z)[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_head(n=5)
+top_10  <- rbind(top_10, as.data.table(z)[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_tail(n=5))
 p <- ggplot(z,
             aes(
               x = baseMean + 0.01,
               y = log2FoldChange,
-              col = paste(padj < 0.05, is.na(padj)),
+              color = paste(padj < 0.05, is.na(padj)),
               shape = paste(padj < 0.05, is.na(padj))
             ))
-p + geom_point() +
-  scale_x_log10() +
-  scale_y_continuous(breaks = seq(-3,3,1)) +
-  scale_color_manual(
-    labels = c("padj>0.05", "Below threshold", "padj<0.05"),
-    values = c("lightblue", "salmon", "green"),
+p + geom_point(na.rm=TRUE) +
+    geom_text_repel(data = top_10,
+                    aes(label = gene_symbol),
+                    show.legend = FALSE,
+                    color = "black") +
+    scale_x_log10() +
+    scale_y_continuous() +
+    scale_color_manual(labels = c("padj>0.05", "Below threshold", "padj<0.05"),
+    values = plasma(4),
     guide_legend(title = "")) +
-  scale_shape_manual(guide = "none", values = c(0, 1, 2)) +
-  labs(title = paste(paste(condition1, "vs.", condition2), sep = ""),
-       subtitle = "MA Plot", x = "baseMean") +
-  guides(colour = guide_legend(override.aes = list(shape = c(0, 1, 2)))) +
-  annotate(geom = "text", y = 3, x = 5,
-           label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA"
-                               & log2FoldChange > 0]),
-                          " Genes Upregulated in ",
-                          condition1),
-           hjust = "middle") +
-  annotate(geom = "text", y = -3, x = 5,
-           label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA"
-                               & log2FoldChange < 0]),
-                          " Genes Downregulated in ",
-                          condition1),
-           hjust = "middle")
-dev.off()
+    scale_shape_manual(guide = "none",
+                       values = c(0, 1, 2)) +
+    labs(title = paste(paste(condition1, "vs.", condition2), sep = ""),
+         subtitle = "MA Plot", x = "baseMean") +
+    guides(color = guide_legend(override.aes = list(shape = c(0, 1, 2)))) +
+    annotate(geom = "text",
+             y=max(z$log2FoldChange, na.rm=TRUE)/2,
+             x=log(mean(z$baseMean, na.rm=TRUE))/10,
+             label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA" &
+                                 log2FoldChange > 0]),
+                            " Genes Upregulated in ",
+                            condition1),
+             hjust = "middle") +
+    annotate(geom = "text",
+             y=min(z$log2FoldChange, na.rm=TRUE)/2,
+             x=log(mean(z$baseMean, na.rm=TRUE))/10,
+             label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA" &
+                                 log2FoldChange < 0]),
+                            " Genes Downregulated in ",
+                            condition1),
+             hjust = "middle") +
+    theme_minimal() +
+    theme(plot.margin=grid::unit(c(0.5,0.5,0.5,0.5), "in"))
+ggsave(last_plot(), file=file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf"))
 
 # Volcano Plot ------------------------------------------------------------
 pdf(file=file.path(WD, comparison, paste0(comparison, ".volcano_plot.pdf")))
@@ -165,7 +178,6 @@ library(htmlwidgets)
 library(plyr)
 library(ggtext)
 library(forcats)
-library(dplyr)
 
 
 #MSigDB Canonical pathways v7.4 unique string
@@ -313,6 +325,9 @@ bar_down_grob <- as.grob(ggplot(bar_down, aes(x=reorder(V1, -N), y=N, fill=N)) +
                              axis.text.x=element_text(angle=45, hjust=1, vjust=1),
                              panel.grid=element_blank(),
                              plot.title=element_markdown(hjust=0.5, size=10)))
+blankPlot <- ggplot() +
+    geom_blank(aes(1,1)) +
+    theme_void()
 path_plot + annotation_custom(as.grob(grid.arrange(blankPlot, arrangeGrob(bar_down_grob, blankPlot, blankPlot, blankPlot, bar_up_grob, ncol=5), ncol=1)), xmin=-25,xmax=Inf, ymin=0)
 ggsave(last_plot(), file="pathways.pdf")
 
@@ -328,7 +343,9 @@ plot_gene <- function(gene_name) {
            theme(plot.title=element_text(hjust=.5))
 }
 
-plot_gene("TNF")
+plot_gene("TLR4")
+
+ggsave(last_plot(), file="pathways.pdf")
 
 for (gene in rownames(mat)){
     pdf(file = paste0(WD, "/expression_plots/", gene, ".pdf"))
@@ -336,6 +353,3 @@ for (gene in rownames(mat)){
     print(final_plot)
     dev.off()
 }
-
-blankPlot <- ggplot()+geom_blank(aes(1,1))+
-  theme_void()

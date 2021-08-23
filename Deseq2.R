@@ -27,7 +27,7 @@ samples$mapped_percent <-
 files <- file.path(WD, "salmon_output", "quants", samples$sample.id, "quant.sf")
 names(files) <- samples$sample.id
 all(file.exists(files))
-tx2gene <- read.csv(file.path(WD, "tx2gene.csv"))
+tx2gene <- fread(file.path(WD, "tx2gene.csv"))
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
 
 # DESeq2 ------------------------------------------------------------------
@@ -97,13 +97,14 @@ z <-
     z[, !(names(z) %in% row.names(subset(samples,
                                          condition != condition1
                                          & condition != condition2)))]
+z  <- as.data.table(z)
 dir.create(file.path(WD, comparison))
 fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep="")))
 
 # Expression Profile Plot -------------------------------------------------
 #highligts the top 5 by FC transcripts in each direction
-top_10  <- as.data.table(z)[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_head(n=5)
-top_10  <- rbind(top_10, as.data.table(z)[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_tail(n=5))
+top_10  <- z[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_head(n=5)
+top_10  <- rbind(top_10, z[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_tail(n=5))
 p <- ggplot(z,
             aes(
               x = baseMean + 0.01,
@@ -129,7 +130,7 @@ p + geom_point(na.rm=TRUE) +
     annotate(geom = "text",
              y=max(z$log2FoldChange, na.rm=TRUE)/2,
              x=log(mean(z$baseMean, na.rm=TRUE))/10,
-             label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA" &
+             label = paste0(nrow(z[padj <= 0.05 & padj != "NA" &
                                  log2FoldChange > 0]),
                             " Genes Upregulated in ",
                             condition1),
@@ -137,7 +138,7 @@ p + geom_point(na.rm=TRUE) +
     annotate(geom = "text",
              y=min(z$log2FoldChange, na.rm=TRUE)/2,
              x=log(mean(z$baseMean, na.rm=TRUE))/10,
-             label = paste0(nrow(as.data.table(z)[padj <= 0.05 & padj != "NA" &
+             label = paste0(nrow(z[padj <= 0.05 & padj != "NA" &
                                  log2FoldChange < 0]),
                             " Genes Downregulated in ",
                             condition1),
@@ -182,8 +183,8 @@ library(forcats)
 
 #MSigDB Canonical pathways v7.4 unique string
 custom_gmt <- 'gp__IbKR_F2Rn_Tss'
-sig_up <- as.data.table(z)[order(padj)][log2FoldChange > 1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
-sig_down <- as.data.table(z)[order(padj)][log2FoldChange < -1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
+sig_up <- z[order(padj)][log2FoldChange > 1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
+sig_down <- z[order(padj)][log2FoldChange < -1 & padj<= 0.05 ][, c("gene_id", "gene_symbol", "log2FoldChange", "padj","chr")]
 sig_genes <- setNames(list(
                            fifelse(as.character(sig_up$gene_symbol) != "",
                                    as.character(sig_up$gene_symbol),
@@ -343,7 +344,7 @@ plot_gene <- function(gene_name) {
            theme(plot.title=element_text(hjust=.5))
 }
 
-plot_gene("TLR4")
+plot_gene("SLC18A2")
 
 ggsave(last_plot(), file="pathways.pdf")
 

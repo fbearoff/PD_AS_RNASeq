@@ -102,7 +102,7 @@ dir.create(file.path(WD, comparison))
 fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep="")))
 
 # Expression Profile Plot -------------------------------------------------
-#highligts the top 5 by FC transcripts in each direction
+#highligts the top 5 transcripts by FC in each direction
 top_10  <- z[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_head(n=5)
 top_10  <- rbind(top_10, z[padj <= 0.05][order(log2FoldChange, decreasing=TRUE)] %>% slice_tail(n=5))
 p <- ggplot(z,

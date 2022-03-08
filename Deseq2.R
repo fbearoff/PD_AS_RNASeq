@@ -16,6 +16,7 @@ library(pheatmap)
 library(ggrepel)
 library(viridis)
 library(dplyr)
+library(ggtext)
 register(MulticoreParam(10))
 
 # TxImport ----------------------------------------------------------------
@@ -28,7 +29,7 @@ files <- file.path(WD, "salmon_output", "quants", samples$sample.id, "quant.sf")
 names(files) <- samples$sample.id
 all(file.exists(files))
 tx2gene <- fread(file.path(WD, "tx2gene.csv"))
-txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
+txi <- tximport(files, type = "salmon", tx2gene = tx2gene[, 1:2])
 
 # DESeq2 ------------------------------------------------------------------
 rownames(samples) <- colnames(txi$counts)
@@ -98,13 +99,14 @@ z <-
                                          condition != condition1
                                          & condition != condition2)))]
 z  <- as.data.table(z)
+z  <- z[chr %in% c(1:22, "MT", "X", "Y")]
 dir.create(file.path(WD, comparison))
 fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep = "")))
 
 # Expression Profile Plot -------------------------------------------------
-#highligts the top 5 transcripts by FC in each direction
-top_10  <- z[padj <= 0.05][order(log2FoldChange, decreasing = TRUE)] %>% slice_head(n = 5)
-top_10  <- rbind(top_10, z[padj <= 0.05][order(log2FoldChange, decreasing = TRUE)] %>% slice_tail(n = 5))
+#highligts the top 5 transcripts by FC in each direction, baseMean of 100 or more
+top_10  <- z[padj <= 0.05][baseMean >= 100][order(log2FoldChange, decreasing = TRUE)] %>% slice_head(n = 5)
+top_10  <- rbind(top_10, z[padj <= 0.05][baseMean >= 100][order(log2FoldChange, decreasing = TRUE)] %>% slice_tail(n = 5))
 p <- ggplot(z,
             aes(
               x = baseMean + 0.01,
@@ -120,8 +122,8 @@ p + geom_point(na.rm = TRUE) +
     scale_x_log10() +
     scale_y_continuous() +
     scale_color_manual(labels = c("padj>0.05", "Below threshold", "padj<0.05"),
-    values = plasma(4),
-    guide_legend(title = "")) +
+                       values = plasma(4),
+                       guide_legend(title = "")) +
     scale_shape_manual(guide = "none",
                        values = c(0, 1, 2)) +
     labs(title = paste(paste(condition1, "vs.", condition2), sep = ""),
@@ -134,7 +136,8 @@ p + geom_point(na.rm = TRUE) +
                                  log2FoldChange > 0]),
                             " Genes Upregulated in ",
                             condition1),
-             hjust = "middle") +
+             hjust = "middle",
+             size = 4) +
     annotate(geom = "text",
              y = min(z$log2FoldChange, na.rm = TRUE) / 2,
              x = log(mean(z$baseMean, na.rm = TRUE)) / 10,
@@ -142,9 +145,11 @@ p + geom_point(na.rm = TRUE) +
                                  log2FoldChange < 0]),
                             " Genes Downregulated in ",
                             condition1),
-             hjust = "middle") +
+             hjust = "middle",
+             size = 4) +
     theme_minimal() +
-    theme(plot.margin = grid::unit(c(0.5, 0.5, 0.5, 0.5), "in"))
+    theme(plot.margin = grid::unit(c(0.5, 0.5, 0.5, 0.5), "in"),
+          legend.text = element_text(size = 15))
 ggsave(last_plot(), file = file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf")))
 
 # Volcano Plot ------------------------------------------------------------
@@ -177,15 +182,15 @@ library(gprofiler2)
 library(stringr)
 library(htmlwidgets)
 library(plyr)
-library(ggtext)
 library(forcats)
 
 
 #MSigDB Canonical pathways v7.4 unique string
-custom_gmt <- 'gp__IbKR_F2Rn_Tss'
-sig_up <- z[order(padj)][log2FoldChange > 1 & padj <= 0.05 & chr %in% c(1:22, "X", "Y", "MT")][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
-sig_down <- z[order(padj)][log2FoldChange < -1 & padj <= 0.05 & chr %in% c(1:22, "X", "Y", "MT")][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
-
+#GSEA c2.cp.v7.5 gp__Dg7I_dpHN_NPY
+#GSEA c2.cp.v7.4 gp__IbKR_F2Rn_Tss
+custom_gmt <- "gp__Dg7I_dpHN_NPY"
+sig_up <- z[order(padj)][log2FoldChange > 1 & padj <= 0.05][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
+sig_down <- z[order(padj)][log2FoldChange < -1 & padj <= 0.05][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
 sig_genes <- setNames(list(
                            fifelse(as.character(sig_up$gene_symbol) != "",
                                    as.character(sig_up$gene_symbol),
@@ -201,7 +206,6 @@ gost_res <- gost(query = sig_genes,
                  multi_query = FALSE,
                  evcodes = TRUE,
                  exclude_iea = TRUE)
-
 gost_link <- gost(query = sig_genes,
                   organism = custom_gmt, #usually "hsapaiens"
                   ordered_query = TRUE,
@@ -225,12 +229,17 @@ cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
                    paste0(comparison, ".gProfiler.html")))
 browseURL(gost_link)
 
+# for GSEA GMTs
 gost_res$result$term_name <- str_replace_all(str_replace_all(gost_res$result$term_name,
                                                                   'http://www.gsea-msigdb.org/gsea/msigdb/cards/(.*?)_',
                                                                   ""),
                                                   "_", " ")
 gost_res$result$source  <- str_extract(gost_res$result$term_id,
                                             "^[^_]*")
+#for gProfiler
+# gost_res$result$source  <- str_extract(gost_res$result$term_id,
+#                                             "^[^:]*")
+
 #collate lists of pathways for each gene
 paths_down <- list()
 for (gene in sig_down$gene_symbol) {
@@ -265,6 +274,7 @@ query_gost_genes  <- function(direction, data_source) {
 }
 
 pathways <- as.data.table(gost_res$result)[, c("term_name", "p_value", "term_size", "intersection_size", "source", "query")][order(query, p_value)]
+# pathways  <- pathways[source %in% c("WP", "KEGG", "REAC")]
 plot_order <- rownames(pathways[query == paste0(comparison, "_down")])
 plot_order <- append(plot_order, rownames(pathways[query == paste0(comparison, "_up")]))
 pathways$plot_order <- as.numeric(plot_order)
@@ -285,6 +295,8 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = 
                   fill = NA,
                   color = revalue(pathways[plot_order <= pathway_n & log_p_value > 1]$source,
                                 c("REACTOME" = "black", "WP" = "black", "KEGG" = "white", "PID" = "black", "NABA" = "white", "BIOCARTA" = "black", "SIG" = "black")),
+                  # color = revalue(pathways[plot_order <= pathway_n & log_p_value > 1]$source,
+                  #               c("REAC" = "black", "WP" = "black", "KEGG" = "white")),
               label.color = NA) +
     geom_richtext(data = pathways[plot_order <= pathway_n & log_p_value < 1],
                   aes(label = paste0(term_name, " (**", intersection_size, "/", term_size, "**)"),
@@ -295,7 +307,7 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = 
                   fill = NA,
                   color = "black",
                   label.color = NA) +
-    scale_fill_manual(values = plasma(4)) +
+    scale_fill_manual(values = plasma(length(levels(as.factor(pathways$source[1:pathway_n]))))) +
     scale_x_continuous(name = "-log p-value", limits = c(-25, NA)) +
     scale_y_discrete(name = "Pathway Rank")  +
     theme_classic() +
@@ -312,9 +324,18 @@ library(ggplotify)
 bar_up <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_up"), intersection],
                                                    ","))),
                              decreasing = TRUE)[1:10])
+
 bar_down <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_down"), intersection],
                                                    ","))),
                              decreasing = TRUE)[1:10])
+#for gProfiler datasource
+# bar_up <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_up")][source %in% c("KEGG", "REAC", "WP")][, intersection],
+#                                                    ","))),
+#                              decreasing = TRUE)[1:10])
+# bar_down <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_down")][source %in% c("KEGG", "REAC", "WP")][, intersection],
+#                                                    ","))),
+#                              decreasing = TRUE)[1:10])
+
 bar_up_grob <- as.grob(ggplot(bar_up, aes(x = reorder(V1, -N), y = N, fill = N)) +
                        theme_minimal() +
                        geom_col(show.legend = FALSE) +
@@ -357,7 +378,7 @@ plot_gene <- function(gene_name) {
            theme(plot.title = element_text(hjust = .5))
 }
 
-plot_gene("SLC18A2")
+plot_gene("ITGAL")
 
 ggsave(last_plot(), file = "pathways.pdf")
 

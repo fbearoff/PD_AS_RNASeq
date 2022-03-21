@@ -3,6 +3,9 @@ WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
 condition1 <- "10ug_ml_ASPFF"
 condition2 <- "10ug_ml_ASM"
 
+condition1_pretty  <- "10μg/ml PFF"
+condition2_pretty  <- "10μg/ml ASM"
+
 # Load Libraries ----------------------------------------------------------
 library(BiocParallel)
 library(tximport)
@@ -12,11 +15,13 @@ library(data.table)
 library(ggplot2)
 library(gplots)
 library(genefilter)
-library(pheatmap)
+library(pheatmap) #needed?
 library(ggrepel)
 library(viridis)
 library(dplyr)
+library(Cairo)
 library(ggtext)
+library(ComplexHeatmap)
 register(MulticoreParam(10))
 
 # TxImport ----------------------------------------------------------------
@@ -70,8 +75,11 @@ mat <- mat - rowMeans(mat)
 rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
 anno <- as.data.frame(colData(vsd)[, c("condition", "RIN", "DV200")])
 pdf(file = "clustered_heatmap.pdf")
-pheatmap(mat, annotation_col = anno, angle_col = 45,  main = "Top 20 Most Variable Genes",
-          color = plasma(255))
+pheatmap(mat,
+         annotation_col = anno,
+         angle_col = 45,
+         main = "Top 20 Most Variable Genes",
+         color = plasma(255))
 dev.off()
 
 # DESeq2 Comparisons -----------------------------------------------------------
@@ -104,53 +112,62 @@ dir.create(file.path(WD, comparison))
 fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep = "")))
 
 # Expression Profile Plot -------------------------------------------------
-#highligts the top 5 transcripts by FC in each direction, baseMean of 100 or more
-top_10  <- z[padj <= 0.05][baseMean >= 100][order(log2FoldChange, decreasing = TRUE)] %>% slice_head(n = 5)
-top_10  <- rbind(top_10, z[padj <= 0.05][baseMean >= 100][order(log2FoldChange, decreasing = TRUE)] %>% slice_tail(n = 5))
+#highligts the top 12 transcripts by FC in each direction, baseMean of 10 or more
+top_10  <- z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_head(n = 12)
+top_10  <- rbind(top_10, z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_tail(n = 12))
 p <- ggplot(z,
             aes(
               x = baseMean + 0.01,
               y = log2FoldChange,
-              color = paste(padj < 0.05, is.na(padj)),
-              shape = paste(padj < 0.05, is.na(padj))
-            ))
+              color = ifelse(is.na(padj), padj > 0.05, padj < 0.05 & abs(log2FoldChange) > 1),
+              shape = paste(is.na(padj), padj < 0.05)))
 p + geom_point(na.rm = TRUE) +
     geom_text_repel(data = top_10,
-                    aes(label = gene_symbol),
+                    aes(label = paste0(gene_symbol, " (", round(log2FoldChange, digits = 1), ")")),
                     show.legend = FALSE,
-                    color = "black") +
+                    color = "black",
+                    fontface = "bold") +
     scale_x_log10() +
-    scale_y_continuous() +
-    scale_color_manual(labels = c("padj>0.05", "Below threshold", "padj<0.05"),
-                       values = plasma(4),
+    scale_y_continuous(trans = "pseudo_log") +
+    scale_color_manual(labels = c("padj>0.05", "padj < 0.05 & |log2FC| > 1", "Below Threshold"),
+                       values = plasma(2, begin = .2, end = .7),
                        guide_legend(title = "")) +
     scale_shape_manual(guide = "none",
                        values = c(0, 1, 2)) +
-    labs(title = paste(paste(condition1, "vs.", condition2), sep = ""),
-         subtitle = "MA Plot", x = "baseMean") +
-    guides(color = guide_legend(override.aes = list(shape = c(0, 1, 2)))) +
-    annotate(geom = "text",
+    labs(title = "α-Syn PFFs Alter Gene \nExpression in Monocytes",
+          x = "baseMean",
+          y = "log2FC") +
+    guides(color = guide_legend(override.aes = list(shape = c(0, 1, 2),
+                                                    size = 4))) +
+    annotate(geom = "richtext",
              y = max(z$log2FoldChange, na.rm = TRUE) / 2,
              x = log(mean(z$baseMean, na.rm = TRUE)) / 10,
              label = paste0(nrow(z[padj <= 0.05 & padj != "NA" &
-                                 log2FoldChange > 0]),
-                            " Genes Upregulated in ",
-                            condition1),
+                                 log2FoldChange > 1 &
+                                 baseMean > 10]),
+                            " Genes <i>Upregulated</i> in ", "<b>",
+                            condition1_pretty, "</b>"),
              hjust = "middle",
-             size = 4) +
-    annotate(geom = "text",
+             size = 6) +
+    annotate(geom = "richtext",
              y = min(z$log2FoldChange, na.rm = TRUE) / 2,
              x = log(mean(z$baseMean, na.rm = TRUE)) / 10,
              label = paste0(nrow(z[padj <= 0.05 & padj != "NA" &
-                                 log2FoldChange < 0]),
-                            " Genes Downregulated in ",
-                            condition1),
+                                 log2FoldChange < -1 &
+                                 baseMean > 10]),
+                            " Genes <i>Downregulated</i> in <b>",
+                            condition1_pretty, "</b>"),
              hjust = "middle",
-             size = 4) +
+             size = 6) +
     theme_minimal() +
     theme(plot.margin = grid::unit(c(0.5, 0.5, 0.5, 0.5), "in"),
-          legend.text = element_text(size = 15))
-ggsave(last_plot(), file = file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf")))
+          legend.text = element_text(size = 15),
+          legend.position = "bottom",
+          plot.title = element_text(hjust = 0.5,
+                                    size = 40))
+ggsave(last_plot(),
+       file = file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf")),
+       device = cairo_pdf)
 
 # Volcano Plot ------------------------------------------------------------
 pdf(file = file.path(WD, comparison, paste0(comparison, ".volcano_plot.pdf")))
@@ -162,19 +179,71 @@ p <-
 p + geom_point(size = 1) + scale_y_log10()
 dev.off()
 
-# Clustered Top 50 Heatmap ------------------------------------------------
-top.count <- 50
-top.genes <- z$gene_id[order(z$padj)][1:top.count]
-abund <- txi$abundance
-abund <- abund[which(rownames(abund) %in% top.genes), ]
-abund.scale <- t(scale(t(abund), center = TRUE, scale = TRUE))
-rownames(abund.scale) <- tx2gene$gene_symbol[match(rownames(abund.scale),
+# Clustered Top 50 Heatmap (comparison only)------------------------------------------------
+top_count <- 50
+top_genes <- z[abs(log2FoldChange) > 1][order(padj)]$gene_id[1:top_count]
+abund <- txi$abundance[, !(colnames(txi$abundance) %in%
+                           row.names(subset(samples,
+                                            condition != condition1
+                                            & condition != condition2)))]
+abund <- abund[which(rownames(abund) %in% top_genes), ]
+rownames(abund) <- tx2gene$gene_symbol[match(rownames(abund),
                                                    tx2gene$gene_id)]
-pdf(file = file.path(WD, comparison, paste0(comparison, ".heatmap.pdf")))
-pheatmap(mat = abund.scale, main = paste0(comparison, "\n Top ", top.count,
-                                          " Significant Genes"),
-         annotation_col = anno, angle_col = 45, fontsize_row = 6,
-         annotation_names_col = FALSE, color = plasma(255))
+abund_scale <- t(scale(t(abund),
+                       center = TRUE,
+                       scale = TRUE))
+anno_col <- samples[which(samples$condition %in% c(condition1, condition2)), ]
+anno_col$condition[anno_col$condition == condition1] <- condition1_pretty
+anno_col$condition[anno_col$condition == condition2] <- condition2_pretty
+
+col_names <- list(condition = setNames(plasma(2, begin = 0.5, end = 0.7), c(condition1_pretty, condition2_pretty)))
+
+ha <- HeatmapAnnotation(df = anno_col["condition"],
+                        show_annotation_name = FALSE,
+                        border = FALSE,
+                        annotation_legend_param = list(nrow = 2,
+                                                       col = plasma(2),
+                                                       title_position = "topcenter",
+                                                       labels_gp = gpar(fontsize = 8)),
+                        col = col_names,
+                        gp = gpar(col = "black"))
+
+ra <- rowAnnotation(order = anno_text(paste0("(", rank(z[gene_symbol %in% rownames(abund)]$padj, ties.method = "first"),") "),
+                                      gp = gpar(fontsize = 8,
+                                                fontface = "bold"),
+                                      just = "center",
+                                      location = 0.5,
+                                      show_name = FALSE))
+
+hm  <- Heatmap(abund_scale,
+        column_title = paste0("Top ", top_count, " DE Genes\nAltered by α-Syn PFFs"),
+        column_title_gp = gpar(fontsize = 18),
+        top_annotation = ha,
+        row_split = 2,
+        row_title = NULL,
+        right_annotation = ra,
+        row_names_gp = gpar(fontsize = 8),
+        column_split = 2,
+        show_column_names = FALSE,
+        show_row_names = TRUE,
+        show_parent_dend_line = FALSE,
+        col = plasma(255),
+        heatmap_legend_param = list(
+                                    title = "Expression",
+                                    legend_direction = "horizontal",
+                                    title_position = "topcenter",
+                                    labels_gp = gpar(fontsize = 8)))
+Cairo(file = file.path(WD, comparison, paste0(comparison, ".heatmap.pdf")),
+      type = "pdf",
+      width = 8,
+      height = 10,
+      units = "in",
+      dpi = "auto",
+      family = "Arial")
+draw(hm,
+     merge_legend = TRUE,
+     heatmap_legend_side = "bottom",
+     annotation_legend_side = "bottom")
 dev.off()
 
 # GO Enrichment -----------------------------------------------------------
@@ -189,8 +258,8 @@ library(forcats)
 #GSEA c2.cp.v7.5 gp__Dg7I_dpHN_NPY
 #GSEA c2.cp.v7.4 gp__IbKR_F2Rn_Tss
 custom_gmt <- "gp__Dg7I_dpHN_NPY"
-sig_up <- z[order(padj)][log2FoldChange > 1 & padj <= 0.05][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
-sig_down <- z[order(padj)][log2FoldChange < -1 & padj <= 0.05][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
+sig_up <- z[order(padj)][log2FoldChange > 1 & padj <= 0.05 & baseMean > 10][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
+sig_down <- z[order(padj)][log2FoldChange < -1 & padj <= 0.05 & baseMean > 10][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
 sig_genes <- setNames(list(
                            fifelse(as.character(sig_up$gene_symbol) != "",
                                    as.character(sig_up$gene_symbol),
@@ -291,7 +360,7 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = 
                       hjust = "left",
                       vjust = 0.5),
                   position = position_stack(vjust = 0),
-                  size = 3,
+                  size = 4,
                   fill = NA,
                   color = revalue(pathways[plot_order <= pathway_n & log_p_value > 1]$source,
                                 c("REACTOME" = "black", "WP" = "black", "KEGG" = "white", "PID" = "black", "NABA" = "white", "BIOCARTA" = "black", "SIG" = "black")),
@@ -303,7 +372,7 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = 
                       hjust = "right",
                       vjust = 0.5),
                   position = position_dodge(width = 1),
-                  size = 3,
+                  size = 4,
                   fill = NA,
                   color = "black",
                   label.color = NA) +
@@ -311,9 +380,10 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = 
     scale_x_continuous(name = "-log p-value", limits = c(-25, NA)) +
     scale_y_discrete(name = "Pathway Rank")  +
     theme_classic() +
-    labs(title = paste0("Top ", pathway_n, " Enriched Pathways in ", comparison)) +
+    labs(title = paste0("Top ", pathway_n, " Pathways Enriched by α-Syn PFFs")) +
     theme(plot.margin = grid::unit(c(0.5, 0.5, 0, 0.5), "in"),
-          plot.title = element_text(hjust = 0.5),
+          plot.title = element_text(hjust = 0.5,
+                                    size = 50),
           legend.justification = "top")
 
 # Most common genes in results
@@ -341,30 +411,32 @@ bar_up_grob <- as.grob(ggplot(bar_up, aes(x = reorder(V1, -N), y = N, fill = N))
                        geom_col(show.legend = FALSE) +
                        scale_fill_viridis(option = "plasma",
                                           direction = -1) +
-                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br> *Upregulated*  in ", condition1),
+                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br> *Upregulated*  by ", condition1_pretty),
                             y = "Pathway Occurrences") +
                        theme(aspect.ratio = 3 / 5,
                              axis.title.x = element_blank(),
                              axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
                              panel.grid = element_blank(),
-                             plot.title = element_markdown(hjust = 0.5, size = 10)))
+                             plot.title = element_markdown(hjust = 0.5, size = 15)))
 bar_down_grob <- as.grob(ggplot(bar_down, aes(x = reorder(V1, -N), y = N, fill = N)) +
                        theme_minimal() +
                        geom_col(show.legend = FALSE) +
                        scale_fill_viridis(option = "plasma",
                                           direction = -1) +
-                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br>*Downregulated*  in ", condition1),
+                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br>*Downregulated*  by ", condition1_pretty),
                             y = "Pathway Occurrences") +
                        theme(aspect.ratio = 3 / 5,
                              axis.title.x = element_blank(),
                              axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
                              panel.grid = element_blank(),
-                             plot.title = element_markdown(hjust = 0.5, size = 10)))
+                             plot.title = element_markdown(hjust = 0.5, size = 15)))
 blankPlot <- ggplot() +
     geom_blank(aes(1, 1)) +
     theme_void()
 path_plot + annotation_custom(as.grob(grid.arrange(blankPlot, arrangeGrob(bar_down_grob, blankPlot, blankPlot, blankPlot, bar_up_grob, ncol = 5), ncol = 1)), xmin = -25, xmax = Inf, ymin = 0)
-ggsave(last_plot(), file = paste(WD, comparison, "pathways.pdf", sep = "/"))
+ggsave(last_plot(),
+       file = paste(WD, comparison, "pathways.pdf", sep = "/"),
+       device = cairo_pdf)
 
 # Plot Gene -----------------------------------------------------------
 plot_gene <- function(gene_name) {

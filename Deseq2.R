@@ -42,7 +42,7 @@ dds <- DESeqDataSetFromTximport(txi, samples, ~ condition)
 dds <- DESeq(dds, parallel = TRUE)
 
 # PCA Plot ------------------------------------------------------------
-vsd <- vst(dds, blind = FALSE)
+vsd <- vst(dds, blind = TRUE)
 pcaData <- plotPCA(vsd, intgroup = c("condition", "RIN", "DV200"), returnData = TRUE)
 percentVar <- round(100 * attr(pcaData, "percentVar"))
 pdf(file = "pca.pdf")
@@ -70,7 +70,7 @@ dev.off()
 
 # Clustered Heatmap ---------------------------------------------------------
 topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 50)
-mat <- assay(vsd)[ topVarGenes, ]
+mat <- assay(vsd)[topVarGenes, ]
 mat <- mat - rowMeans(mat)
 rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
 anno <- as.data.frame(colData(vsd)[, c("condition", "RIN", "DV200")])
@@ -107,7 +107,7 @@ z <-
                                          condition != condition1
                                          & condition != condition2)))]
 z  <- as.data.table(z)
-z  <- z[chr %in% c(1:22, "MT", "X", "Y")]
+z  <- z[chr %in% c(1:22, "MT", "X", "Y")][gene_symbol != ""]
 dir.create(file.path(WD, comparison))
 fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep = "")))
 
@@ -119,8 +119,8 @@ p <- ggplot(z,
             aes(
               x = baseMean + 0.01,
               y = log2FoldChange,
-              color = ifelse(is.na(padj), padj > 0.05, padj < 0.05 & abs(log2FoldChange) > 1),
-              shape = paste(is.na(padj), padj < 0.05)))
+              color = ifelse(is.na(padj), padj > 0.05, padj < 0.05 & abs(log2FoldChange) > 1 & baseMean > 10),
+              shape = ifelse(is.na(padj), padj > 0.05, padj < 0.05 & abs(log2FoldChange) > 1 & baseMean > 10)))
 p + geom_point(na.rm = TRUE) +
     geom_text_repel(data = top_10,
                     aes(label = paste0(gene_symbol, " (", round(log2FoldChange, digits = 1), ")")),
@@ -129,10 +129,11 @@ p + geom_point(na.rm = TRUE) +
                     fontface = "bold") +
     scale_x_log10() +
     scale_y_continuous(trans = "pseudo_log") +
-    scale_color_manual(labels = c("padj>0.05", "padj < 0.05 & |log2FC| > 1", "Below Threshold"),
+    scale_color_manual(labels = c("padj>0.05", "DE Transcripts", "padj=NA"),
                        values = plasma(2, begin = .2, end = .7),
                        guide_legend(title = "")) +
     scale_shape_manual(guide = "none",
+                       na.value = 2,
                        values = c(0, 1, 2)) +
     labs(title = "α-Syn PFFs Alter Gene \nExpression in Monocytes",
           x = "baseMean",
@@ -167,16 +168,23 @@ p + geom_point(na.rm = TRUE) +
                                     size = 40))
 ggsave(last_plot(),
        file = file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf")),
-       device = cairo_pdf)
+       device = cairo_pdf,
+       width = 26.5,
+       height = 14.5,
+       unit = "in")
 
 # Volcano Plot ------------------------------------------------------------
 pdf(file = file.path(WD, comparison, paste0(comparison, ".volcano_plot.pdf")))
 p <-
   ggplot(z, aes(
     x = log2FoldChange,
-    y = 1 - padj,
-    col = abs(log2FoldChange)))
-p + geom_point(size = 1) + scale_y_log10()
+    y = -log10(padj),
+    color = abs(log2FoldChange)))
+p + geom_point(size = 1,
+               na.rm = TRUE) +
+    scale_y_log10() +
+    geom_hline(yintercept = 1) +
+    scale_color_viridis(option = "plasma", begin = 0.1, end = 0.8, direction = -1)
 dev.off()
 
 # Clustered Top 50 Heatmap (comparison only)------------------------------------------------
@@ -208,7 +216,10 @@ ha <- HeatmapAnnotation(df = anno_col["condition"],
                         col = col_names,
                         gp = gpar(col = "black"))
 
-ra <- rowAnnotation(order = anno_text(paste0("(", rank(z[gene_symbol %in% rownames(abund)]$padj, ties.method = "first"),") "),
+ra <- rowAnnotation(order = anno_text(paste0("(",
+                                             rank(z[gene_symbol %in% rownames(abund)]$padj,
+                                                  ties.method = "first"),
+                                             ") "),
                                       gp = gpar(fontsize = 8,
                                                 fontface = "bold"),
                                       just = "center",
@@ -227,7 +238,7 @@ hm  <- Heatmap(abund_scale,
         show_column_names = FALSE,
         show_row_names = TRUE,
         show_parent_dend_line = FALSE,
-        col = plasma(255),
+        col = plasma(255, direction = -1),
         heatmap_legend_param = list(
                                     title = "Expression",
                                     legend_direction = "horizontal",
@@ -256,7 +267,6 @@ library(forcats)
 
 #MSigDB Canonical pathways v7.4 unique string
 #GSEA c2.cp.v7.5 gp__Dg7I_dpHN_NPY
-#GSEA c2.cp.v7.4 gp__IbKR_F2Rn_Tss
 custom_gmt <- "gp__Dg7I_dpHN_NPY"
 sig_up <- z[order(padj)][log2FoldChange > 1 & padj <= 0.05 & baseMean > 10][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
 sig_down <- z[order(padj)][log2FoldChange < -1 & padj <= 0.05 & baseMean > 10][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
@@ -288,7 +298,21 @@ htmlwidgets::saveWidget(gp,
                         title = comparison,
                         file = file.path(WD, comparison,
                                          paste0(comparison, ".gProfiler_plot.html")))
-fwrite(as.data.table(gost_res$result)[order(p_value)],
+
+
+gdt  <- as.data.table(gost_res$result)
+
+# for GSEA GMTs
+gdt$term_name <- str_replace_all(str_replace_all(gdt$term_name,
+                                                                  'http://www.gsea-msigdb.org/gsea/msigdb/cards/(.*?)_',
+                                                                  ""),
+                                                  "_", " ")
+gdt$source  <- str_extract(gdt$term_id,
+                                            "^[^_]*")
+#for gProfiler
+# gdt$source  <- str_extract(gdt$term_id,
+#                                             "^[^:]*")
+fwrite(gdt[, ! c("evidence_codes", "parents")][order(p_value)],
        file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv")))
 cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
            gost_link,
@@ -298,32 +322,25 @@ cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
                    paste0(comparison, ".gProfiler.html")))
 browseURL(gost_link)
 
-# for GSEA GMTs
-gost_res$result$term_name <- str_replace_all(str_replace_all(gost_res$result$term_name,
-                                                                  'http://www.gsea-msigdb.org/gsea/msigdb/cards/(.*?)_',
-                                                                  ""),
-                                                  "_", " ")
-gost_res$result$source  <- str_extract(gost_res$result$term_id,
-                                            "^[^_]*")
-#for gProfiler
-# gost_res$result$source  <- str_extract(gost_res$result$term_id,
-#                                             "^[^:]*")
-
 #collate lists of pathways for each gene
 paths_down <- list()
 for (gene in sig_down$gene_symbol) {
-    pathway <- gost_res$result$term_id[grep(gene, gost_res$result$intersection)]
+    pathway <- gdt[query == paste0(comparison, "_down")]$term_id[grep(gene, gdt[query == paste0(comparison, "_down")]$intersection)]
     paths_down[[gene]]  <-  pathway
 }
-fwrite(lapply(paths_down, `length<-`, max(lengths(paths_down))), file = paste(WD, comparison, "pathways_down.csv", sep = "/"))
+fwrite(lapply(paths_down, `length<-`, max(lengths(paths_down))),
+       file = paste(WD, comparison, "pathways_down.csv", sep = "/"))
 paths_up <- list()
 for (gene in sig_up$gene_symbol) {
-    pathway <- gost_res$result$term_id[grep(gene, gost_res$result$intersection)]
+    pathway <- gdt[query == paste0(comparison, "_up")]$term_id[grep(gene, gdt[query == paste0(comparison, "_up")]$intersection)]
     paths_up[[gene]]  <-  pathway
 }
-fwrite(lapply(paths_up, `length<-`, max(lengths(paths_up))), file = paste(WD, comparison, "pathways_up.csv", sep = "/"))
+fwrite(lapply(paths_up, `length<-`, max(lengths(paths_up))),
+       file = paste(WD, comparison, "pathways_up.csv", sep = "/"))
 
-gem <- gost_res$result[, c("query", "term_id", "term_name", "p_value", "intersection", "source")]
+
+#gem creation
+gem <- gdt[, c("query", "term_id", "term_name", "p_value", "intersection", "source")]
 colnames(gem) <- c("query", "GO.ID", "Description", "p.Val", "Genes", "source")
 gem$FDR <- gem$p.Val
 gem$Phenotype <- "+1"
@@ -337,26 +354,36 @@ gem %>% group_by(query) %>%
 
 #return pathway genes as list per pathway filtered by direction and data source
 query_gost_genes  <- function(direction, data_source) {
-    query_list <- setNames(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_", direction) & source == data_source, intersection], ","),
-                           as.data.table(gost_res$result)[query == paste0(comparison, "_", direction) & source == data_source, term_name])
+    query_list <- setNames(strsplit(gdt[query == paste0(comparison, "_", direction) & source == data_source, intersection], ","),
+                           gdt[query == paste0(comparison, "_", direction) & source == data_source, term_name])
     print(query_list)
 }
 
-pathways <- as.data.table(gost_res$result)[, c("term_name", "p_value", "term_size", "intersection_size", "source", "query")][order(query, p_value)]
+#Pathways figure
+pathways <- gdt[, c("term_name", "p_value", "term_size", "intersection_size", "source", "query")][order(query, p_value)]
 # pathways  <- pathways[source %in% c("WP", "KEGG", "REAC")]
 plot_order <- rownames(pathways[query == paste0(comparison, "_down")])
-plot_order <- append(plot_order, rownames(pathways[query == paste0(comparison, "_up")]))
+plot_order <- append(plot_order,
+                     rownames(pathways[query == paste0(comparison, "_up")]))
 pathways$plot_order <- as.numeric(plot_order)
 pathways[, `:=`(log_p_value = log(p_value))]
 pathways[query == paste0(comparison, "_up"), `:=`(log_p_value = -1 * log_p_value)]
 
 pathway_n <- 30
 
-path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = fct_rev(as.factor(plot_order)), fill = source)) +
+path_plot <- ggplot(pathways[plot_order <= pathway_n],
+                    aes(x = log_p_value,
+                        y = fct_rev(as.factor(plot_order)),
+                        fill = source)) +
     geom_col(position = position_stack(),
              color = "white") +
     geom_richtext(data = pathways[plot_order <= pathway_n & log_p_value > 1],
-                  aes(label = paste0(term_name, " (**", intersection_size, "/", term_size, "**)"),
+                  aes(label = paste0(term_name,
+                                     " (**",
+                                     intersection_size,
+                                     "/",
+                                     term_size,
+                                     "**)"),
                       hjust = "left",
                       vjust = 0.5),
                   position = position_stack(vjust = 0),
@@ -368,7 +395,12 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = 
                   #               c("REAC" = "black", "WP" = "black", "KEGG" = "white")),
               label.color = NA) +
     geom_richtext(data = pathways[plot_order <= pathway_n & log_p_value < 1],
-                  aes(label = paste0(term_name, " (**", intersection_size, "/", term_size, "**)"),
+                  aes(label = paste0(term_name,
+                                     " (**",
+                                     intersection_size,
+                                     "/",
+                                     term_size,
+                                     "**)"),
                       hjust = "right",
                       vjust = 0.5),
                   position = position_dodge(width = 1),
@@ -380,7 +412,9 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n], aes(x = log_p_value, y = 
     scale_x_continuous(name = "-log p-value", limits = c(-25, NA)) +
     scale_y_discrete(name = "Pathway Rank")  +
     theme_classic() +
-    labs(title = paste0("Top ", pathway_n, " Pathways Enriched by α-Syn PFFs")) +
+    labs(title = paste0("Top ",
+                        pathway_n,
+                        " Pathways Enriched by α-Syn PFFs")) +
     theme(plot.margin = grid::unit(c(0.5, 0.5, 0, 0.5), "in"),
           plot.title = element_text(hjust = 0.5,
                                     size = 50),
@@ -391,51 +425,77 @@ library(grid)
 library(gridExtra)
 library(ggplotify)
 
-bar_up <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_up"), intersection],
+bar_up <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_up"), intersection],
                                                    ","))),
                              decreasing = TRUE)[1:10])
 
-bar_down <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_down"), intersection],
+bar_down <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_down"), intersection],
                                                    ","))),
                              decreasing = TRUE)[1:10])
 #for gProfiler datasource
-# bar_up <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_up")][source %in% c("KEGG", "REAC", "WP")][, intersection],
+# bar_up <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_up")][source %in% c("KEGG", "REAC", "WP")][, intersection],
 #                                                    ","))),
 #                              decreasing = TRUE)[1:10])
-# bar_down <- as.data.table(sort(table(unlist(strsplit(as.data.table(gost_res$result)[query == paste0(comparison, "_down")][source %in% c("KEGG", "REAC", "WP")][, intersection],
+# bar_down <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_down")][source %in% c("KEGG", "REAC", "WP")][, intersection],
 #                                                    ","))),
 #                              decreasing = TRUE)[1:10])
 
-bar_up_grob <- as.grob(ggplot(bar_up, aes(x = reorder(V1, -N), y = N, fill = N)) +
+bar_up_grob <- as.grob(ggplot(bar_up, aes(x = reorder(V1, -N),
+                                          y = N,
+                                          fill = N)) +
                        theme_minimal() +
                        geom_col(show.legend = FALSE) +
                        scale_fill_viridis(option = "plasma",
                                           direction = -1) +
-                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br> *Upregulated*  by ", condition1_pretty),
+                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br> *Upregulated*  by ",
+                                           condition1_pretty),
                             y = "Pathway Occurrences") +
                        theme(aspect.ratio = 3 / 5,
                              axis.title.x = element_blank(),
-                             axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+                             axis.text.x = element_text(angle = 45,
+                                                        hjust = 1,
+                                                        vjust = 1),
                              panel.grid = element_blank(),
-                             plot.title = element_markdown(hjust = 0.5, size = 15)))
-bar_down_grob <- as.grob(ggplot(bar_down, aes(x = reorder(V1, -N), y = N, fill = N)) +
+                             plot.title = element_markdown(hjust = 0.5,
+                                                           size = 15)))
+bar_down_grob <- as.grob(ggplot(bar_down, aes(x = reorder(V1, -N),
+                                              y = N,
+                                              fill = N)) +
                        theme_minimal() +
                        geom_col(show.legend = FALSE) +
                        scale_fill_viridis(option = "plasma",
                                           direction = -1) +
-                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br>*Downregulated*  by ", condition1_pretty),
+                       labs(title = paste0("Most Frequently Occuring Pathway Genes<br>*Downregulated*  by ",
+                                           condition1_pretty),
                             y = "Pathway Occurrences") +
                        theme(aspect.ratio = 3 / 5,
                              axis.title.x = element_blank(),
-                             axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1),
+                             axis.text.x = element_text(angle = 45,
+                                                        hjust = 1,
+                                                        vjust = 1),
                              panel.grid = element_blank(),
-                             plot.title = element_markdown(hjust = 0.5, size = 15)))
+                             plot.title = element_markdown(hjust = 0.5,
+                                                           size = 15)))
 blankPlot <- ggplot() +
     geom_blank(aes(1, 1)) +
     theme_void()
-path_plot + annotation_custom(as.grob(grid.arrange(blankPlot, arrangeGrob(bar_down_grob, blankPlot, blankPlot, blankPlot, bar_up_grob, ncol = 5), ncol = 1)), xmin = -25, xmax = Inf, ymin = 0)
+path_plot +
+    annotation_custom(as.grob(grid.arrange(blankPlot,
+                                           arrangeGrob(bar_down_grob,
+                                                       blankPlot,
+                                                       blankPlot,
+                                                       blankPlot,
+                                                       bar_up_grob,
+                                                       ncol = 5),
+                                           ncol = 1)),
+                      xmin = -25,
+                      xmax = Inf,
+                      ymin = 0)
 ggsave(last_plot(),
-       file = paste(WD, comparison, "pathways.pdf", sep = "/"),
+       file = paste(WD,
+                    comparison,
+                    "pathways.pdf",
+                    sep = "/"),
        device = cairo_pdf)
 
 # Plot Gene -----------------------------------------------------------
@@ -445,12 +505,16 @@ plot_gene <- function(gene_name) {
     plot_data <- plotCounts(dds, gene = as.character(gene_id), returnData = TRUE)
     ggplot(plot_data, aes(x = condition, y = count, color = condition)) +
            geom_point(show.legend = TRUE) +
+           scale_x_discrete(limits = c("vehicle",
+                                       condition2,
+                                       "1ug_ml_ASPFF",
+                                       condition1)) +
            scale_color_manual(values = plasma(5)) +
            ggtitle(paste0(gene_name, "\n", gene_id)) +
            theme(plot.title = element_text(hjust = .5))
 }
 
-plot_gene("ITGAL")
+plot_gene("IL1B")
 
 ggsave(last_plot(), file = "pathways.pdf")
 

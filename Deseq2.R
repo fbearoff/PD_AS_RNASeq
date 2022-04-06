@@ -1,4 +1,4 @@
-# Inputs ------------------------------------------------------------------
+# Inputs
 WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
 condition1 <- "10ug_ml_ASPFF"
 condition2 <- "10ug_ml_ASM"
@@ -6,7 +6,7 @@ condition2 <- "10ug_ml_ASM"
 condition1_pretty  <- "10μg/ml PFF"
 condition2_pretty  <- "10μg/ml ASM"
 
-# Load Libraries ----------------------------------------------------------
+# Load Libraries
 library(BiocParallel)
 library(tximport)
 library(readr)
@@ -15,7 +15,6 @@ library(data.table)
 library(ggplot2)
 library(gplots)
 library(genefilter)
-library(pheatmap) #needed?
 library(ggrepel)
 library(viridis)
 library(dplyr)
@@ -24,7 +23,7 @@ library(ggtext)
 library(ComplexHeatmap)
 register(MulticoreParam(10))
 
-# TxImport ----------------------------------------------------------------
+# TxImport
 setwd(WD)
 samples <-
     read.table(file.path(WD, "samples.txt"), header = TRUE)
@@ -36,31 +35,34 @@ all(file.exists(files))
 tx2gene <- fread(file.path(WD, "tx2gene.csv"))
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene[, 1:2])
 
-# DESeq2 ------------------------------------------------------------------
+# DESeq2
 rownames(samples) <- colnames(txi$counts)
 dds <- DESeqDataSetFromTximport(txi, samples, ~ condition)
 dds <- DESeq(dds, parallel = TRUE)
 
-# PCA Plot ------------------------------------------------------------
+# PCA Plot
 vsd <- vst(dds, blind = TRUE)
-pcaData <- plotPCA(vsd, intgroup = c("condition", "RIN", "DV200"), returnData = TRUE)
+pcaData <- plotPCA(vsd,
+                   intgroup = c("condition", "RIN", "DV200"),
+                   returnData = TRUE)
 percentVar <- round(100 * attr(pcaData, "percentVar"))
 pdf(file = "pca.pdf")
 ggplot(pcaData, aes(PC1, PC2, color = condition, shape = condition)) +
-  geom_point(size = 2) + geom_text_repel(aes(label = name), show.legend = FALSE) +
+  geom_point(size = 2) +
+  geom_text_repel(aes(label = name), show.legend = FALSE) +
   xlab(paste0("PC1: ", percentVar[1], "% variance")) +
   ylab(paste0("PC2: ", percentVar[2], "% variance")) +
   coord_fixed() + labs(title = "Variance Stabilizing Transformation PCA Plot")
 dev.off()
 
-# Clustered Sample Distance Plot ------------------------------------------
+# Clustered Sample Distance Plot
 sampleDists <- dist(t(assay(vsd)))
 sampleDistMatrix <- as.matrix(sampleDists)
 rownames(sampleDistMatrix) <- paste(colnames(vsd), vsd$condition, sep = ":")
 colnames(sampleDistMatrix) <- NULL
 colors <- plasma(255)
 pdf(file = "clustered_distance.pdf")
-pheatmap(
+ComplexHeatmap::pheatmap(
   sampleDistMatrix,
   clustering_distance_rows = sampleDists,
   clustering_distance_cols = sampleDists,
@@ -68,22 +70,21 @@ pheatmap(
 )
 dev.off()
 
-# Clustered Heatmap ---------------------------------------------------------
-topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 50)
+# Clustered Heatmap
+topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
 mat <- assay(vsd)[topVarGenes, ]
 mat <- mat - rowMeans(mat)
 rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
 anno <- as.data.frame(colData(vsd)[, c("condition", "RIN", "DV200")])
 pdf(file = "clustered_heatmap.pdf")
-pheatmap(mat,
+ComplexHeatmap::pheatmap(mat,
          annotation_col = anno,
-         angle_col = 45,
          main = "Top 20 Most Variable Genes",
          color = plasma(255))
 dev.off()
 
-# DESeq2 Comparisons -----------------------------------------------------------
-comparison <- paste(condition1, "_vs_", condition2, sep = "")
+# DESeq2 Comparisons
+comparison <- paste0(condition1, "_vs_", condition2)
 res <-
   results(dds,
           contrast = c("condition", condition1, condition2),
@@ -109,21 +110,37 @@ z <-
 z  <- as.data.table(z)
 z  <- z[chr %in% c(1:22, "MT", "X", "Y")][gene_symbol != ""]
 dir.create(file.path(WD, comparison))
-fwrite(z, file = file.path(WD, comparison, paste(comparison, ".res.csv", sep = "")))
+fwrite(z,
+       file = file.path(WD,
+                        comparison,
+                        paste0(comparison, ".res.csv")))
 
-# Expression Profile Plot -------------------------------------------------
-#highligts the top 12 transcripts by FC in each direction, baseMean of 10 or more
+## Expression Profile Plot
+# highligts the top 12 transcripts by FC in each direction, baseMean of 10 or more
 top_10  <- z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_head(n = 12)
-top_10  <- rbind(top_10, z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_tail(n = 12))
+top_10  <- rbind(top_10,
+                 z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_tail(n = 12))
 p <- ggplot(z,
             aes(
               x = baseMean + 0.01,
               y = log2FoldChange,
-              color = ifelse(is.na(padj), padj > 0.05, padj < 0.05 & abs(log2FoldChange) > 1 & baseMean > 10),
-              shape = ifelse(is.na(padj), padj > 0.05, padj < 0.05 & abs(log2FoldChange) > 1 & baseMean > 10)))
+              color = ifelse(is.na(padj),
+                             padj > 0.05,
+                             padj < 0.05
+                             & abs(log2FoldChange) > 1
+                             & baseMean > 10),
+              shape = ifelse(is.na(padj),
+                             padj > 0.05,
+                             padj < 0.05
+                             & abs(log2FoldChange) > 1
+                             & baseMean > 10)))
 p + geom_point(na.rm = TRUE) +
     geom_text_repel(data = top_10,
-                    aes(label = paste0(gene_symbol, " (", round(log2FoldChange, digits = 1), ")")),
+                    aes(label = paste0(gene_symbol,
+                                       " (",
+                                       round(log2FoldChange,
+                                             digits = 1),
+                                       ")")),
                     show.legend = FALSE,
                     color = "black",
                     fontface = "bold") +
@@ -167,13 +184,15 @@ p + geom_point(na.rm = TRUE) +
           plot.title = element_text(hjust = 0.5,
                                     size = 40))
 ggsave(last_plot(),
-       file = file.path(WD, comparison, paste0(comparison, ".expression_profile.pdf")),
+       file = file.path(WD,
+                        comparison,
+                        paste0(comparison, ".expression_profile.pdf")),
        device = cairo_pdf,
        width = 26.5,
        height = 14.5,
        unit = "in")
 
-# Volcano Plot ------------------------------------------------------------
+## Volcano Plot
 pdf(file = file.path(WD, comparison, paste0(comparison, ".volcano_plot.pdf")))
 p <-
   ggplot(z, aes(
@@ -184,10 +203,13 @@ p + geom_point(size = 1,
                na.rm = TRUE) +
     scale_y_log10() +
     geom_hline(yintercept = 1) +
-    scale_color_viridis(option = "plasma", begin = 0.1, end = 0.8, direction = -1)
+    scale_color_viridis(option = "plasma",
+                        begin = 0.1,
+                        end = 0.8,
+                        direction = -1)
 dev.off()
 
-# Clustered Top 50 Heatmap (comparison only)------------------------------------------------
+## Clustered Top 50 Heatmap (comparison only)
 top_count <- 50
 top_genes <- z[abs(log2FoldChange) > 1][order(padj)]$gene_id[1:top_count]
 abund <- txi$abundance[, !(colnames(txi$abundance) %in%
@@ -204,7 +226,8 @@ anno_col <- samples[which(samples$condition %in% c(condition1, condition2)), ]
 anno_col$condition[anno_col$condition == condition1] <- condition1_pretty
 anno_col$condition[anno_col$condition == condition2] <- condition2_pretty
 
-col_names <- list(condition = setNames(plasma(2, begin = 0.5, end = 0.7), c(condition1_pretty, condition2_pretty)))
+col_names <- list(condition = setNames(plasma(2, begin = 0.5, end = 0.7),
+                                       c(condition1_pretty, condition2_pretty)))
 
 ha <- HeatmapAnnotation(df = anno_col["condition"],
                         show_annotation_name = FALSE,
@@ -227,7 +250,9 @@ ra <- rowAnnotation(order = anno_text(paste0("(",
                                       show_name = FALSE))
 
 hm  <- Heatmap(abund_scale,
-        column_title = paste0("Top ", top_count, " DE Genes\nAltered by α-Syn PFFs"),
+        column_title = paste0("Top ",
+                              top_count,
+                              " DE Genes\nAltered by α-Syn PFFs"),
         column_title_gp = gpar(fontsize = 18),
         top_annotation = ha,
         row_split = 2,
@@ -257,7 +282,7 @@ draw(hm,
      annotation_legend_side = "bottom")
 dev.off()
 
-# GO Enrichment -----------------------------------------------------------
+## GO Enrichment
 library(gprofiler2)
 library(stringr)
 library(htmlwidgets)
@@ -273,10 +298,12 @@ sig_down <- z[order(padj)][log2FoldChange < -1 & padj <= 0.05 & baseMean > 10][,
 sig_genes <- setNames(list(
                            fifelse(as.character(sig_up$gene_symbol) != "",
                                    as.character(sig_up$gene_symbol),
-                                   as.character(str_extract(sig_up$gene_id, "^.*(?=(\\.))"))),
+                                   as.character(str_extract(sig_up$gene_id,
+                                                            "^.*(?=(\\.))"))),
                            fifelse(as.character(sig_down$gene_symbol) != "",
                                    as.character(sig_down$gene_symbol),
-                                   as.character(str_extract(sig_down$gene_id, "^.*(?=(\\.))")))),
+                                   as.character(str_extract(sig_down$gene_id,
+                                                            "^.*(?=(\\.))")))),
                       c(paste0(comparison, "_up"),
                         paste0(comparison, "_down")))
 gost_res <- gost(query = sig_genes,
@@ -297,21 +324,21 @@ htmlwidgets::saveWidget(gp,
                         selfcontained = FALSE,
                         title = comparison,
                         file = file.path(WD, comparison,
-                                         paste0(comparison, ".gProfiler_plot.html")))
+                                         paste0(comparison,
+                                                ".gProfiler_plot.html")))
 
 
 gdt  <- as.data.table(gost_res$result)
 
 # for GSEA GMTs
 gdt$term_name <- str_replace_all(str_replace_all(gdt$term_name,
-                                                                  'http://www.gsea-msigdb.org/gsea/msigdb/cards/(.*?)_',
-                                                                  ""),
-                                                  "_", " ")
-gdt$source  <- str_extract(gdt$term_id,
-                                            "^[^_]*")
+                                                 "http://www.gsea-msigdb.org/gsea/msigdb/cards/(.*?)_",
+                                                 ""),
+                                 "_",
+                                 " ")
+gdt$source  <- str_extract(gdt$term_id, "^[^_]*")
 #for gProfiler
-# gdt$source  <- str_extract(gdt$term_id,
-#                                             "^[^:]*")
+# gdt$source  <- str_extract(gdt$term_id, "^[^:]*")
 fwrite(gdt[, ! c("evidence_codes", "parents")][order(p_value)],
        file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv")))
 cat(paste0("<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
@@ -359,9 +386,8 @@ query_gost_genes  <- function(direction, data_source) {
     print(query_list)
 }
 
-#Pathways figure
+## Pathways figure
 pathways <- gdt[, c("term_name", "p_value", "term_size", "intersection_size", "source", "query")][order(query, p_value)]
-# pathways  <- pathways[source %in% c("WP", "KEGG", "REAC")]
 plot_order <- rownames(pathways[query == paste0(comparison, "_down")])
 plot_order <- append(plot_order,
                      rownames(pathways[query == paste0(comparison, "_up")]))
@@ -390,9 +416,13 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n],
                   size = 4,
                   fill = NA,
                   color = revalue(pathways[plot_order <= pathway_n & log_p_value > 1]$source,
-                                c("REACTOME" = "black", "WP" = "black", "KEGG" = "white", "PID" = "black", "NABA" = "white", "BIOCARTA" = "black", "SIG" = "black")),
-                  # color = revalue(pathways[plot_order <= pathway_n & log_p_value > 1]$source,
-                  #               c("REAC" = "black", "WP" = "black", "KEGG" = "white")),
+                                c("REACTOME" = "black",
+                                  "WP" = "black",
+                                  "KEGG" = "white",
+                                  "PID" = "black",
+                                  "NABA" = "white",
+                                  "BIOCARTA" = "black",
+                                  "SIG" = "black")),
               label.color = NA) +
     geom_richtext(data = pathways[plot_order <= pathway_n & log_p_value < 1],
                   aes(label = paste0(term_name,
@@ -457,7 +487,8 @@ bar_up_grob <- as.grob(ggplot(bar_up, aes(x = reorder(V1, -N),
                                                         vjust = 1),
                              panel.grid = element_blank(),
                              plot.title = element_markdown(hjust = 0.5,
-                                                           size = 15)))
+                                                           size = 15,
+                                                           lineheight = 1.1)))
 bar_down_grob <- as.grob(ggplot(bar_down, aes(x = reorder(V1, -N),
                                               y = N,
                                               fill = N)) +
@@ -475,16 +506,17 @@ bar_down_grob <- as.grob(ggplot(bar_down, aes(x = reorder(V1, -N),
                                                         vjust = 1),
                              panel.grid = element_blank(),
                              plot.title = element_markdown(hjust = 0.5,
-                                                           size = 15)))
-blankPlot <- ggplot() +
+                                                           size = 15,
+                                                           lineheight = 1.1)))
+blank_plot <- ggplot() +
     geom_blank(aes(1, 1)) +
     theme_void()
 path_plot +
-    annotation_custom(as.grob(grid.arrange(blankPlot,
+    annotation_custom(as.grob(grid.arrange(blank_plot,
                                            arrangeGrob(bar_down_grob,
-                                                       blankPlot,
-                                                       blankPlot,
-                                                       blankPlot,
+                                                       blank_plot,
+                                                       blank_plot,
+                                                       blank_plot,
                                                        bar_up_grob,
                                                        ncol = 5),
                                            ncol = 1)),
@@ -498,12 +530,16 @@ ggsave(last_plot(),
                     sep = "/"),
        device = cairo_pdf)
 
-# Plot Gene -----------------------------------------------------------
+## Plot Gene
 plot_gene <- function(gene_name) {
     gene_name  <- toupper(gene_name)
-    gene_id  <- as.data.table(tx2gene)[gene_symbol == gene_name & chr %in% c(1:22, "X", "Y", "MT"), gene_id][1]
-    plot_data <- plotCounts(dds, gene = as.character(gene_id), returnData = TRUE)
-    ggplot(plot_data, aes(x = condition, y = count, color = condition)) +
+    gene_id  <- data.table::as.data.table(tx2gene)[gene_symbol == gene_name & chr %in% c(1:22, "X", "Y", "MT"), gene_id][1]
+    plot_data <- DESeq2::plotCounts(dds,
+                                    gene = as.character(gene_id),
+                                    returnData = TRUE)
+    ggplot(plot_data, aes(x = condition,
+                          y = count,
+                          color = condition)) +
            geom_point(show.legend = TRUE) +
            scale_x_discrete(limits = c("vehicle",
                                        condition2,

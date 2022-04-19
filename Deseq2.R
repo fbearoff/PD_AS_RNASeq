@@ -418,8 +418,7 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n],
                                      intersection_size,
                                      "/",
                                      term_size,
-          ,
-           label = cell_type                           "**)"),
+                                     "**)"),
                       hjust = "left",
                       vjust = 0.5),
                   position = position_stack(vjust = 0),
@@ -571,6 +570,7 @@ for (gene in rownames(mat)) {
     dev.off()
 }
 
+##cibersort
 library(tidyr)
 cibersort <- fread(file.path(WD, comparison, "cibersort_import.csv"))
 
@@ -584,8 +584,6 @@ cibersort_long  <- as.data.table(gather(cibersort,
 
 cibersort_long <- cibersort_long[order(Condition, cell_cat)]
 
-cibersort_long[, Cum.Sum := cumsum(Percent), by = Condition]
-
 ggplot(data = cibersort_long,
        aes(x = Condition,
            y = Percent,
@@ -593,7 +591,7 @@ ggplot(data = cibersort_long,
     geom_bar(stat = "identity",
              width = 0.7) +
     scale_fill_manual(values = primary.colors(n = length(rownames(cibersort)))) +
-    scale_y_continuous(expand = c(0,0.1)) +
+    scale_y_continuous(expand = c(0, 0.1)) +
     geom_richtext(aes(label = if_else(Percent > 2,
                                   paste0(cell_type,
                                          "<b> (",
@@ -616,7 +614,7 @@ ggplot(data = cibersort_long,
           axis.text.y = element_blank(),
           axis.text.x = element_text(size = 20),
           plot.margin = grid::unit(c(0.5, 0, 0, 0), "in")) +
-    guides(fill=guide_legend(ncol = 1)) +
+    guides(fill = guide_legend(ncol = 1)) +
     ggtitle("PFFs Induce Macrophage Transcriptional Profiles") +
     geom_segment(data = cibersort,
                  color = primary.colors(length(rownames(cibersort))),

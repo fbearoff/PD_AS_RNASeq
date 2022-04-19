@@ -34,7 +34,7 @@ names(files) <- samples$sample.id
 all(file.exists(files))
 tx2gene <- fread(file.path(WD, "tx2gene.csv"))
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene[, 1:2])
-
+txi_abund  <- as.data.frame(txi$abundance)
 # DESeq2
 rownames(samples) <- colnames(txi$counts)
 dds <- DESeqDataSetFromTximport(txi, samples, ~ condition)
@@ -90,6 +90,15 @@ res <-
           contrast = c("condition", condition1, condition2),
           parallel = TRUE, alpha = 0.05)
 gene_synonym <- unique(tx2gene[, -1])
+txi_abund$gene_symbol <-
+    gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
+
+fwrite(z,
+       file = file.path(WD, "txi.csv"))
+## merge txi_abund
+
+
+
 z <- data.frame(res)
 z$gene_symbol <-
     gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
@@ -290,8 +299,8 @@ library(plyr)
 library(forcats)
 
 
-#MSigDB Canonical pathways v7.4 unique string
-#GSEA c2.cp.v7.5 gp__Dg7I_dpHN_NPY
+#MSigDB C2 Canonical pathways
+#GSEA c2.cp.v7.5.1 gp__Dg7I_dpHN_NPY
 custom_gmt <- "gp__Dg7I_dpHN_NPY"
 sig_up <- z[order(padj)][log2FoldChange > 1 & padj <= 0.05 & baseMean > 10][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
 sig_down <- z[order(padj)][log2FoldChange < -1 & padj <= 0.05 & baseMean > 10][, c("gene_id", "gene_symbol", "log2FoldChange", "padj", "chr")]
@@ -409,7 +418,8 @@ path_plot <- ggplot(pathways[plot_order <= pathway_n],
                                      intersection_size,
                                      "/",
                                      term_size,
-                                     "**)"),
+          ,
+           label = cell_type                           "**)"),
                       hjust = "left",
                       vjust = 0.5),
                   position = position_stack(vjust = 0),
@@ -460,8 +470,8 @@ bar_up <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(compariso
                              decreasing = TRUE)[1:10])
 
 bar_down <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_down"), intersection],
-                                                   ","))),
-                             decreasing = TRUE)[1:10])
+                                                     ","))),
+                               decreasing = TRUE)[1:10])
 #for gProfiler datasource
 # bar_up <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_up")][source %in% c("KEGG", "REAC", "WP")][, intersection],
 #                                                    ","))),
@@ -560,3 +570,67 @@ for (gene in rownames(mat)) {
     print(final_plot)
     dev.off()
 }
+
+library(tidyr)
+cibersort <- fread(file.path(WD, comparison, "cibersort_import.csv"))
+
+cibersort  <- cibersort[PFF + ASM != 0]
+
+cibersort_long  <- as.data.table(gather(cibersort,
+                                        Condition,
+                                        Percent,
+                                        ASM:PFF,
+                                        factor_key = TRUE))
+
+cibersort_long <- cibersort_long[order(Condition, cell_cat)]
+
+cibersort_long[, Cum.Sum := cumsum(Percent), by = Condition]
+
+ggplot(data = cibersort_long,
+       aes(x = Condition,
+           y = Percent,
+           fill = cell_type)) +
+    geom_bar(stat = "identity",
+             width = 0.7) +
+    scale_fill_manual(values = primary.colors(n = length(rownames(cibersort)))) +
+    scale_y_continuous(expand = c(0,0.1)) +
+    geom_richtext(aes(label = if_else(Percent > 2,
+                                  paste0(cell_type,
+                                         "<b> (",
+                                         round(Percent, 1),
+                                         "%)</b>"),
+                                  NULL)),
+              position = position_stack(vjust = 0.5),
+              size = 5,
+              label.color = NA,
+              na.rm = TRUE,
+              show.legend = FALSE) +
+    theme_minimal() +
+    theme(panel.grid = element_blank(),
+          plot.title = element_text(size = 20,
+                                    hjust = 0.5),
+          legend.box.spacing = unit(-0.5, "in"),
+          legend.text = element_text(size = 12),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.text.y = element_blank(),
+          axis.text.x = element_text(size = 20),
+          plot.margin = grid::unit(c(0.5, 0, 0, 0), "in")) +
+    guides(fill=guide_legend(ncol = 1)) +
+    ggtitle("PFFs Induce Macrophage Transcriptional Profiles") +
+    geom_segment(data = cibersort,
+                 color = primary.colors(length(rownames(cibersort))),
+                 aes(x = 1 + 0.7 / 2,
+                     y = 100 - cumsum(ASM),
+                     xend = 2 - 0.7 / 2,
+                     yend = 100 - cumsum(PFF),
+                     color = cell_type))
+
+ggsave(last_plot(),
+       file = file.path(WD,
+                        comparison,
+                        paste0(comparison, ".cibersort.pdf")),
+       device = cairo_pdf,
+       width = 20,
+       height = 20,
+       unit = "in")

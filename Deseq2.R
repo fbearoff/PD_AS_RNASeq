@@ -1,5 +1,5 @@
 # Inputs
-WD <- "/home/frank/R_projects/FB38_June2021_30-506016007"
+WD <- "/home/frank/R_projects/PD_AS_RNASeq"
 condition1 <- "10ug_ml_ASPFF"
 condition2 <- "10ug_ml_ASM"
 
@@ -97,7 +97,7 @@ gene_synonym <- unique(tx2gene[, -1])
 txi_abund$gene_symbol <-
   gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
 
-fwrite(z,
+fwrite(txi_abund,
   file = file.path(WD, "txi.csv")
 )
 ## merge txi_abund
@@ -712,8 +712,10 @@ ggsave(last_plot(),
     "pathways.pdf",
     sep = "/"
   ),
-  device = cairo_pdf
-)
+  device = cairo_pdf,
+  width = 26,
+  height = 14.5,
+unit = "in")
 
 ## Plot Gene
 plot_gene <- function(gene_name) {

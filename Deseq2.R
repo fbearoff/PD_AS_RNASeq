@@ -86,6 +86,14 @@ ComplexHeatmap::pheatmap(mat,
 )
 dev.off()
 
+## merge txi_abund
+gene_synonym <- unique(tx2gene[, -1])
+txi_abund$gene_symbol <-
+  gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
+fwrite(txi_abund,
+  file = file.path(WD, "txi.csv")
+)
+
 # DESeq2 Comparisons
 comparison <- paste0(condition1, "_vs_", condition2)
 res <-
@@ -93,14 +101,6 @@ res <-
     contrast = c("condition", condition1, condition2),
     parallel = TRUE, alpha = 0.05
   )
-gene_synonym <- unique(tx2gene[, -1])
-txi_abund$gene_symbol <-
-  gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
-
-fwrite(txi_abund,
-  file = file.path(WD, "txi.csv")
-)
-## merge txi_abund
 z <- data.frame(res)
 z$gene_symbol <-
   gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
@@ -133,9 +133,9 @@ fwrite(z,
 
 ## Expression Profile Plot
 # highligts the top 12 transcripts by FC in each direction, baseMean of 10 or more
-top_10 <- z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_head(n = 12)
-top_10 <- rbind(
-  top_10,
+top_12 <- z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_head(n = 12)
+top_12 <- rbind(
+  top_12,
   z[padj <= 0.05][baseMean > 10][order(log2FoldChange, decreasing = TRUE)] %>% slice_tail(n = 12)
 )
 p <- ggplot(
@@ -159,7 +159,7 @@ p <- ggplot(
 )
 p + geom_point(na.rm = TRUE) +
   geom_text_repel(
-    data = top_10,
+    data = top_12,
     aes(label = paste0(
       gene_symbol,
       " (",
@@ -742,7 +742,6 @@ plot_gene <- function(gene_name) {
 }
 
 plot_gene("IL1B")
-
 ggsave(last_plot(), file = "pathways.pdf")
 
 for (gene in rownames(mat)) {
@@ -751,88 +750,3 @@ for (gene in rownames(mat)) {
   print(final_plot)
   dev.off()
 }
-
-## cibersort
-library(tidyr)
-cibersort <- fread(file.path(WD, comparison, "cibersort_import.csv"))
-
-cibersort <- cibersort[PFF + ASM != 0]
-
-cibersort_long <- as.data.table(gather(cibersort,
-  Condition,
-  Percent,
-  ASM:PFF,
-  factor_key = TRUE
-))
-
-cibersort_long <- cibersort_long[order(Condition, cell_cat)]
-
-ggplot(
-  data = cibersort_long,
-  aes(
-    x = Condition,
-    y = Percent,
-    fill = cell_type
-  )
-) +
-  geom_bar(
-    stat = "identity",
-    width = 0.7
-  ) +
-  scale_fill_manual(values = primary.colors(n = length(rownames(cibersort)))) +
-  scale_y_continuous(expand = c(0, 0.1)) +
-  geom_richtext(aes(label = if_else(Percent > 2,
-    paste0(
-      cell_type,
-      "<b> (",
-      round(Percent, 1),
-      "%)</b>"
-    ),
-    NULL
-  )),
-  position = position_stack(vjust = 0.5),
-  size = 5,
-  label.color = NA,
-  na.rm = TRUE,
-  show.legend = FALSE
-  ) +
-  theme_minimal() +
-  theme(
-    panel.grid = element_blank(),
-    plot.title = element_text(
-      size = 20,
-      hjust = 0.5
-    ),
-    legend.box.spacing = unit(-0.5, "in"),
-    legend.text = element_text(size = 12),
-    axis.title.x = element_blank(),
-    axis.title.y = element_blank(),
-    axis.text.y = element_blank(),
-    axis.text.x = element_text(size = 20),
-    plot.margin = grid::unit(c(0.5, 0, 0, 0), "in")
-  ) +
-  guides(fill = guide_legend(ncol = 1)) +
-  ggtitle("PFFs Induce Macrophage Transcriptional Profiles") +
-  geom_segment(
-    data = cibersort,
-    color = primary.colors(length(rownames(cibersort))),
-    aes(
-      x = 1 + 0.7 / 2,
-      y = 100 - cumsum(ASM),
-      xend = 2 - 0.7 / 2,
-      yend = 100 - cumsum(PFF),
-      color = cell_type
-    )
-  )
-
-ggsave(last_plot(),
-  file = file.path(
-    WD,
-    comparison,
-    paste0(comparison, ".cibersort.pdf")
-  ),
-  device = cairo_pdf,
-  width = 20,
-  height = 20,
-  unit = "in"
-)

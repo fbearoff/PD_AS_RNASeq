@@ -1,6 +1,6 @@
 # PD_AS_RNASeq
 
-Analysis of RNA seqencing of alpha synuclein treated undifferentiated THP-1 monocytic cells.  
+Analysis of RNA sequencing of alpha synuclein treated undifferentiated THP-1 monocytic cells.  
 
 ## Conditions
 

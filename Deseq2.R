@@ -42,39 +42,39 @@ dds <- DESeq(dds, parallel = TRUE)
 
 # PCA Plot
 vsd <- vst(dds, blind = TRUE)
-pcaData <- plotPCA(vsd,
-  intgroup = c("condition", "RIN", "DV200"),
+pca_data <- plotPCA(vsd,
+  intgroup = "condition",
   returnData = TRUE
 )
-percentVar <- round(100 * attr(pcaData, "percentVar"))
+percent_var <- round(100 * attr(pca_data, "percent_var"))
 pdf(file = "pca.pdf")
-ggplot(pcaData, aes(PC1, PC2, color = condition, shape = condition)) +
+ggplot(pca_data, aes(PC1, PC2, color = condition, shape = condition)) +
   geom_point(size = 2) +
   geom_text_repel(aes(label = name), show.legend = FALSE) +
-  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
-  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  xlab(paste0("PC1: ", percent_var[1], "% variance")) +
+  ylab(paste0("PC2: ", percent_var[2], "% variance")) +
   coord_fixed() +
   labs(title = "Variance Stabilizing Transformation PCA Plot")
 dev.off()
 
 # Clustered Sample Distance Plot
-sampleDists <- dist(t(assay(vsd)))
-sampleDistMatrix <- as.matrix(sampleDists)
-rownames(sampleDistMatrix) <- paste(colnames(vsd), vsd$condition, sep = ":")
-colnames(sampleDistMatrix) <- NULL
+sample_dists <- dist(t(assay(vsd)))
+sample_dist_matrix <- as.matrix(sample_dists)
+rownames(sample_dist_matrix) <- paste(colnames(vsd), vsd$condition, sep = ":")
+colnames(sample_dist_matrix) <- NULL
 colors <- plasma(255)
 pdf(file = "clustered_distance.pdf")
 ComplexHeatmap::pheatmap(
-  sampleDistMatrix,
-  clustering_distance_rows = sampleDists,
-  clustering_distance_cols = sampleDists,
+  sample_dist_matrix,
+  clustering_distance_rows = sample_dists,
+  clustering_distance_cols = sample_dists,
   col = colors
 )
 dev.off()
 
 # Clustered Heatmap
-topVarGenes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
-mat <- assay(vsd)[topVarGenes, ]
+top_var_genes <- head(order(rowVars(assay(vsd)), decreasing = TRUE), 20)
+mat <- assay(vsd)[top_var_genes, ]
 mat <- mat - rowMeans(mat)
 rownames(mat) <- tx2gene$gene_symbol[match(rownames(mat), tx2gene$gene_id)]
 anno <- as.data.frame(colData(vsd)[, c("condition", "RIN", "DV200")])
@@ -101,7 +101,6 @@ fwrite(txi_abund,
   file = file.path(WD, "txi.csv")
 )
 ## merge txi_abund
-
 z <- data.frame(res)
 z$gene_symbol <-
   gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
@@ -482,8 +481,8 @@ fwrite(lapply(paths_up, `length<-`, max(lengths(paths_up))),
 # gem creation
 gem <- gdt[, c("query", "term_id", "term_name", "p_value", "intersection", "source")]
 colnames(gem) <- c("query", "GO.ID", "Description", "p.Val", "Genes", "source")
-gem$FDR <- gem$p.Val
-gem$Phenotype <- "+1"
+gem$fdr <- gem$p.Val
+gem$phenotype <- "+1"
 
 gem %>%
   group_by(query) %>%

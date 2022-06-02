@@ -88,8 +88,13 @@ dev.off()
 
 ## merge txi_abund
 gene_synonym <- unique(tx2gene[, -1])
-txi_abund$gene_symbol <-
-  gene_synonym$gene_symbol[match(rownames(res), gene_synonym$gene_id)]
+
+txi_abund <- merge(txi_abund,
+  gene_synonym,
+  by.x = "row.names",
+  by.y = "gene_id")
+
+txi_abund  <- rename(txi_abund, gene_id = Row.names)
 fwrite(txi_abund,
   file = file.path(WD, "txi.csv")
 )
@@ -714,7 +719,8 @@ ggsave(last_plot(),
   device = cairo_pdf,
   width = 26,
   height = 14.5,
-unit = "in")
+  unit = "in"
+)
 
 ## Plot Gene
 plot_gene <- function(gene_name) {
@@ -748,5 +754,7 @@ for (gene in rownames(mat)) {
   pdf(file = paste0(WD, "/expression_plots/", gene, ".pdf"))
   final_plot <- plot_gene(gene)
   print(final_plot)
+  dev.off()
+}
   dev.off()
 }

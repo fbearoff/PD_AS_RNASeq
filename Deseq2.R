@@ -46,7 +46,7 @@ pca_data <- plotPCA(vsd,
   intgroup = "condition",
   returnData = TRUE
 )
-percent_var <- round(100 * attr(pca_data, "percent_var"))
+percent_var <- round(100 * attr(pca_data, "percentVar"))
 pdf(file = "pca.pdf")
 ggplot(pca_data, aes(PC1, PC2, color = condition, shape = condition)) +
   geom_point(size = 2) +
@@ -754,7 +754,5 @@ for (gene in rownames(mat)) {
   pdf(file = paste0(WD, "/expression_plots/", gene, ".pdf"))
   final_plot <- plot_gene(gene)
   print(final_plot)
-  dev.off()
-}
   dev.off()
 }

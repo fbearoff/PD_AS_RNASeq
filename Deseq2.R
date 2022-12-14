@@ -92,9 +92,10 @@ gene_synonym <- unique(tx2gene[, -1])
 txi_abund <- merge(txi_abund,
   gene_synonym,
   by.x = "row.names",
-  by.y = "gene_id")
+  by.y = "gene_id"
+)
 
-txi_abund  <- rename(txi_abund, gene_id = Row.names)
+txi_abund <- rename(txi_abund, gene_id = Row.names)
 fwrite(txi_abund,
   file = file.path(WD, "txi.csv")
 )
@@ -311,20 +312,21 @@ ha <- HeatmapAnnotation(
   gp = gpar(col = "black")
 )
 
-ra <- rowAnnotation(order = anno_text(paste0(
-  "(",
-  rank(z[gene_symbol %in% rownames(abund)]$padj,
-    ties.method = "first"
+ra <- rowAnnotation(order = anno_text(
+  paste0(
+    "(",
+    rank(z[gene_symbol %in% rownames(abund)]$padj,
+      ties.method = "first"
+    ),
+    ") "
   ),
-  ") "
-),
-gp = gpar(
-  fontsize = 8,
-  fontface = "bold"
-),
-just = "center",
-location = 0.5,
-show_name = FALSE
+  gp = gpar(
+    fontsize = 8,
+    fontface = "bold"
+  ),
+  just = "center",
+  location = 0.5,
+  show_name = FALSE
 ))
 
 hm <- Heatmap(abund_scale,
@@ -452,16 +454,17 @@ gdt$source <- str_extract(gdt$term_id, "^[^_]*")
 fwrite(gdt[, !c("evidence_codes", "parents")][order(p_value)],
   file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv"))
 )
-cat(paste0(
-  "<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
-  gost_link,
-  "\" />", "\n</head>\n<body>\n</body>\n</html>"
-),
-file = file.path(
-  WD,
-  comparison,
-  paste0(comparison, ".gProfiler.html")
-)
+cat(
+  paste0(
+    "<html>\n<head>\n<meta http-equiv=\"refresh\" content=\"0; url=",
+    gost_link,
+    "\" />", "\n</head>\n<body>\n</body>\n</html>"
+  ),
+  file = file.path(
+    WD,
+    comparison,
+    paste0(comparison, ".gProfiler.html")
+  )
 )
 browseURL(gost_link)
 
@@ -494,7 +497,7 @@ gem %>%
   group_walk(~
     write.table(data.frame(.x[, c("GO.ID", "Description", "p.Val", "FDR", "Phenotype", "Genes", "source")]),
       file = paste0(comparison, "/", unique(.y$query), "_gem.txt"),
-      sep = "\t", quote = F, row.names = F
+      sep = "\t", quote = FALSE, row.names = FALSE
     ))
 
 # return pathway genes as list per pathway filtered by direction and data source
@@ -605,18 +608,20 @@ library(grid)
 library(gridExtra)
 library(ggplotify)
 
-bar_up <- as.data.table(sort(table(unlist(strsplit(
-  gdt[query == paste0(comparison, "_up"), intersection],
-  ","
-))),
-decreasing = TRUE
+bar_up <- as.data.table(sort(
+  table(unlist(strsplit(
+    gdt[query == paste0(comparison, "_up"), intersection],
+    ","
+  ))),
+  decreasing = TRUE
 )[1:10])
 
-bar_down <- as.data.table(sort(table(unlist(strsplit(
-  gdt[query == paste0(comparison, "_down"), intersection],
-  ","
-))),
-decreasing = TRUE
+bar_down <- as.data.table(sort(
+  table(unlist(strsplit(
+    gdt[query == paste0(comparison, "_down"), intersection],
+    ","
+  ))),
+  decreasing = TRUE
 )[1:10])
 # for gProfiler datasource
 # bar_up <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_up")][source %in% c("KEGG", "REAC", "WP")][, intersection],
@@ -696,19 +701,20 @@ blank_plot <- ggplot() +
   geom_blank(aes(1, 1)) +
   theme_void()
 path_plot +
-  annotation_custom(as.grob(grid.arrange(blank_plot,
-    arrangeGrob(bar_down_grob,
-      blank_plot,
-      blank_plot,
-      blank_plot,
-      bar_up_grob,
-      ncol = 5
-    ),
-    ncol = 1
-  )),
-  xmin = -25,
-  xmax = Inf,
-  ymin = 0
+  annotation_custom(
+    as.grob(grid.arrange(blank_plot,
+      arrangeGrob(bar_down_grob,
+        blank_plot,
+        blank_plot,
+        blank_plot,
+        bar_up_grob,
+        ncol = 5
+      ),
+      ncol = 1
+    )),
+    xmin = -25,
+    xmax = Inf,
+    ymin = 0
   )
 ggsave(last_plot(),
   file = paste(WD,

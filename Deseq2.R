@@ -35,6 +35,7 @@ all(file.exists(files))
 tx2gene <- fread(file.path(WD, "tx2gene.csv"))
 txi <- tximport(files, type = "salmon", tx2gene = tx2gene[, 1:2])
 txi_abund <- as.data.frame(txi$abundance)
+
 # DESeq2
 rownames(samples) <- colnames(txi$counts)
 dds <- DESeqDataSetFromTximport(txi, samples, ~condition)
@@ -415,7 +416,7 @@ gost_res <- gost(
 )
 gost_link <- gost(
   query = sig_genes,
-  organism = custom_gmt, # usually "hsapaiens"
+  organism = custom_gmt,
   ordered_query = TRUE,
   exclude_iea = TRUE,
   as_short_link = TRUE
@@ -449,8 +450,6 @@ gdt$term_name <- str_replace_all(
   " "
 )
 gdt$source <- str_extract(gdt$term_id, "^[^_]*")
-# for gProfiler
-# gdt$source  <- str_extract(gdt$term_id, "^[^:]*")
 fwrite(gdt[, !c("evidence_codes", "parents")][order(p_value)],
   file = file.path(WD, comparison, paste0(comparison, ".gProfiler.csv"))
 )
@@ -623,13 +622,6 @@ bar_down <- as.data.table(sort(
   ))),
   decreasing = TRUE
 )[1:10])
-# for gProfiler datasource
-# bar_up <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_up")][source %in% c("KEGG", "REAC", "WP")][, intersection],
-#                                                    ","))),
-#                              decreasing = TRUE)[1:10])
-# bar_down <- as.data.table(sort(table(unlist(strsplit(gdt[query == paste0(comparison, "_down")][source %in% c("KEGG", "REAC", "WP")][, intersection],
-#                                                    ","))),
-#                              decreasing = TRUE)[1:10])
 
 bar_up_grob <- as.grob(ggplot(bar_up, aes(
   x = reorder(V1, -N),
@@ -727,38 +719,3 @@ ggsave(last_plot(),
   height = 14.5,
   unit = "in"
 )
-
-## Plot Gene
-plot_gene <- function(gene_name) {
-  gene_name <- toupper(gene_name)
-  gene_id <- data.table::as.data.table(tx2gene)[gene_symbol == gene_name & chr %in% c(1:22, "X", "Y", "MT"), gene_id][1]
-  plot_data <- DESeq2::plotCounts(dds,
-    gene = as.character(gene_id),
-    returnData = TRUE
-  )
-  ggplot(plot_data, aes(
-    x = condition,
-    y = count,
-    color = condition
-  )) +
-    geom_point(show.legend = TRUE) +
-    scale_x_discrete(limits = c(
-      "vehicle",
-      condition2,
-      "1ug_ml_ASPFF",
-      condition1
-    )) +
-    scale_color_manual(values = plasma(5)) +
-    ggtitle(paste0(gene_name, "\n", gene_id)) +
-    theme(plot.title = element_text(hjust = .5))
-}
-
-plot_gene("IL1B")
-ggsave(last_plot(), file = "pathways.pdf")
-
-for (gene in rownames(mat)) {
-  pdf(file = paste0(WD, "/expression_plots/", gene, ".pdf"))
-  final_plot <- plot_gene(gene)
-  print(final_plot)
-  dev.off()
-}

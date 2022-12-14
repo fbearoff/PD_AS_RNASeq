@@ -42,20 +42,21 @@ ggplot(
   ) +
   scale_fill_manual(values = primary.colors(n = length(rownames(cibersort)))) +
   scale_y_continuous(expand = c(0, 0.1)) +
-  geom_richtext(aes(label = if_else(Percent > 2,
-    paste0(
-      cell_type,
-      "<b> (",
-      round(Percent, 1),
-      "%)</b>"
-    ),
-    NULL
-  )),
-  position = position_stack(vjust = 0.5),
-  size = 5,
-  label.color = NA,
-  na.rm = TRUE,
-  show.legend = FALSE
+  geom_richtext(
+    aes(label = if_else(Percent > 2,
+      paste0(
+        cell_type,
+        "<b> (",
+        round(Percent, 1),
+        "%)</b>"
+      ),
+      NULL
+    )),
+    position = position_stack(vjust = 0.5),
+    size = 5,
+    label.color = NA,
+    na.rm = TRUE,
+    show.legend = FALSE
   ) +
   theme_minimal() +
   theme(

@@ -1,0 +1,23 @@
+cell_type,cell_cat,ASM,PFF
+B cells naive,b,0.04,2.882193261
+B cells memory,b,0.13977486,0
+Plasma cells,b,0.100213587,0.147290769
+Eosinophils,e,0.658533597,1.657768469
+Macrophages M0,m,1.434832846,19.97854717
+Monocytes,m,58.84679585,15.89979721
+Macrophages M1,m,0,0.670843641
+Macrophages M2,m,18.63455,25.39682512
+Dendritic cells activated,m,0,0
+Dendritic cells resting,m,0,0
+Mast cells activated,ma,0,15.73835773
+Mast cells resting,ma,6.422449082,0
+Neutrophils,n,0,0
+NK cells resting,nk,7.689141151,10.36675846
+NK cells activated,nk,0,0
+T cells regulatory (Tregs),t,0.590681021,2.159100104
+T cells CD8,t,0.833595283,2.354819405
+T cells CD4 memory activated,t,0.295438158,0
+T cells CD4 memory resting,t,4.158127725,2.747698663
+T cells follicular helper,t,0.155952355,0
+T cells CD4 naive,t,0,0
+T cells gamma delta,t,0,0
